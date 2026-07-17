@@ -658,6 +658,9 @@
         <div class="row"><span>Size</span><span class="value" id="impSizeVal"></span></div>
         <input id="impSize" type="range" min="0.3" max="4" step="0.1">
       </div>
+      <div class="row"><span>Lock-on</span>
+        <label class="switch"><input id="impLockOn" type="checkbox" aria-label="Lock-on guidance"><span class="track"></span><span class="thumb"></span></label>
+      </div>
       <button id="launchBtn" class="btn danger">Launch</button>
       <button id="meteorBtn" class="btn">Meteor shower</button>
       <div class="note">Heavy, fast projectiles can shatter a planet outright; lighter ones crater it, kick up debris, and perturb its orbit. Meteor showers burn up in an atmosphere or pepper the surface with craters.</div>
@@ -2385,7 +2388,7 @@ function spawnMeteorShower(rec, count = 12) {
     mesh.scale.setScalar(size);
     mesh.position.copy(pos);
     galaxyGroup.add(mesh);
-    const body = { kind: 'meteor', mesh, vel, radius: size, mass: 0.4, alive: true, ttl: 80, target: rec, homingWeak: true };
+    const body = { kind: 'meteor', mesh, vel, radius: size, mass: 0.4, alive: true, ttl: 80, target: rec, homing: uiParams.lockOn, homingWeak: true };
     attachTrail(body, 0xffb060, 0.05);
     dynBodies.push(body);
   }
@@ -2428,7 +2431,7 @@ function updateMeteorEntry(body, dt) {
 const uiParams = {
   astSize: 1, astMass: 2, astVel: 0.8,
   bhMass: 800,
-  impSpeed: 2.5, impAngle: 0, impMass: 10, impSize: 1.5,
+  impSpeed: 2.5, impAngle: 0, impMass: 10, impSize: 1.5, lockOn: false,
   cometA: 140, cometE: 0.85, cometColor: 'blue',
 };
 
@@ -2464,6 +2467,7 @@ function launchProjectile() {
   body.mass = uiParams.impMass;
   body.isProjectile = true;
   body.target = rec;
+  body.homing = uiParams.lockOn;
   return body;
 }
 
@@ -4058,6 +4062,7 @@ function replayInteraction(event) {
     if (p.projectile) {
       body.isProjectile = true;
       body.target = planets[p.targetIndex] || null;
+      body.homing = !!p.lockOn;
     }
     event.handle = body;
   } finally {
@@ -4361,7 +4366,7 @@ function setupUI() {
     const body = launchProjectile();
     if (body) recordSpawnedBody(body, {
       comet: body.kind === 'comet', a: body.a, e: body.e, color: ui('impCometColor').value,
-      projectile: true, targetIndex: +ui('impactTarget').value,
+      projectile: true, targetIndex: +ui('impactTarget').value, lockOn: body.homing,
     });
   });
   ui('meteorBtn').addEventListener('click', () => spawnMeteorShower(planets[+ui('impactTarget').value]));
@@ -4369,6 +4374,7 @@ function setupUI() {
   bindSlider('impAngle', 'impAngleVal', uiParams, 'impAngle', v => v.toFixed(0) + '°');
   bindSlider('impMass', 'impMassVal', uiParams, 'impMass', v => v.toFixed(1));
   bindSlider('impSize', 'impSizeVal', uiParams, 'impSize', v => v.toFixed(1) + ' u');
+  bindSwitch('impLockOn', uiParams, 'lockOn');
 
   // Camera
   for (const button of document.querySelectorAll('.cam-btn')) {
@@ -4590,9 +4596,9 @@ function updateDynamics(dDays, dt) {
   for (const body of dynBodies) {
     if (!body.alive) continue;
     integrate(body.mesh.position, body.vel, dDays);
-    // ponytail: gentle homing on launched projectiles — sun gravity bends slow
+    // ponytail: gentle homing, opt-in via Lock-on — sun gravity bends slow
     // shots off the lead point otherwise; real ballistics would need a Lambert solver
-    if (body.target && !body.target.destroyed) {
+    if (body.homing && body.target && !body.target.destroyed) {
       _d.copy(body.target.anchor.position).sub(body.mesh.position);
       const dist = _d.length();
       _d.normalize();
