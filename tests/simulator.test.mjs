@@ -12,6 +12,73 @@ function section(start, end) {
   return html.slice(from, to);
 }
 
+function functionSource(name) {
+  const match = new RegExp(`\\bfunction\\s+${name}\\s*\\(`).exec(html);
+  assert.ok(match, `Missing function: ${name}`);
+  const open = html.indexOf('{', match.index);
+  assert.notEqual(open, -1, `Missing function body: ${name}`);
+  let depth = 0;
+  let quote = null;
+  for (let i = open; i < html.length; i++) {
+    const char = html[i];
+    const next = html[i + 1];
+    if (quote) {
+      if (char === '\\') i++;
+      else if (char === quote) quote = null;
+      continue;
+    }
+    if (char === '/' && next === '/') { i = html.indexOf('\n', i + 2); continue; }
+    if (char === '/' && next === '*') { i = html.indexOf('*/', i + 2) + 1; continue; }
+    if (`'\"\``.includes(char)) { quote = char; continue; }
+    if (char === '{') depth++;
+    if (char === '}' && --depth === 0) return html.slice(match.index, i + 1);
+  }
+  assert.fail(`Unclosed function body: ${name}`);
+}
+
+function constantSource(name) {
+  const match = new RegExp(`\\b(?:const|let)\\s+${name}\\b[^;]*;`).exec(html);
+  assert.ok(match, `Missing constant: ${name}`);
+  return match[0];
+}
+
+function elementSourceById(id, source = html) {
+  const start = new RegExp(`<([\\w-]+)\\b[^>]*\\bid=["']${id}["'][^>]*>`, 'i').exec(source);
+  assert.ok(start, `Missing element: ${id}`);
+  const tag = start[1];
+  const tags = new RegExp(`<\\/?${tag}\\b[^>]*>`, 'gi');
+  tags.lastIndex = start.index;
+  let depth = 0;
+  let match;
+  while ((match = tags.exec(source))) {
+    if (match[0].startsWith('</')) depth--;
+    else if (!match[0].endsWith('/>')) depth++;
+    if (depth === 0) return source.slice(start.index, tags.lastIndex);
+  }
+  assert.fail(`Unclosed element: ${id}`);
+}
+
+function startTagById(id, source = html) {
+  const tag = new RegExp(`<[^>]*\\bid=["']${id}["'][^>]*>`, 'i').exec(source);
+  assert.ok(tag, `Missing start tag: ${id}`);
+  return tag[0];
+}
+
+function assertAttributes(tag, attributes) {
+  for (const [name, pattern = /.+/] of Object.entries(attributes)) {
+    const match = new RegExp(`\\s${name}(?:\\s*=\\s*["']([^"']*)["'])?`, 'i').exec(tag);
+    assert.ok(match, `Missing ${name} on ${tag}`);
+    if (pattern) assert.match(match[1] ?? '', pattern, `Unexpected ${name} on ${tag}`);
+  }
+}
+
+function listenerWindow(source, id, event) {
+  const marker = new RegExp(`ui\\(\\s*['"]${id}['"]\\s*\\)[\\s\\S]*?addEventListener\\(\\s*['"]${event}['"]`).exec(source);
+  assert.ok(marker, `Missing ${event} listener for ${id}`);
+  const end = source.indexOf('addEventListener(', marker.index + marker[0].length);
+  return source.slice(marker.index, end === -1 ? source.length : end);
+}
+
 function assertContracts(source, contracts) {
   const missing = Object.entries(contracts)
     .filter(([, pattern]) => !pattern.test(source))
@@ -77,7 +144,7 @@ test('defines the required simulator functions', () => {
 test('wires the dormant spawn controls in setupUI', () => {
   const setupUI = section('function setupUI() {', 'function clearSpawned() {');
   assertContracts(setupUI, {
-    spawnNEA: /ui\(\s*['"]spawnNEA['"]\s*\)\s*\.addEventListener\(\s*['"]click['"]\s*,\s*\(\s*\)\s*=>\s*spawnNEA\(\s*\)\s*\)/,
+    spawnNEA: /ui\(\s*['"]spawnNEA['"]\s*\)\s*\.addEventListener\(\s*['"]click['"][\s\S]*?spawnNEA\(\s*\)/,
     meteorBtn: /ui\(\s*['"]meteorBtn['"]\s*\)\s*\.addEventListener\(\s*['"]click['"]\s*,\s*\(\s*\)\s*=>\s*spawnMeteorShower\(\s*planets\[\s*\+\s*ui\(\s*['"]impactTarget['"]\s*\)\.value\s*\]\s*\)\s*\)/,
   });
 });
@@ -215,4 +282,284 @@ test('self-check validates the runtime contract and is exported', () => {
   });
   const debugHandle = section('window.solar = {', '</script>');
   assert.match(debugHandle, /\bselfCheck\s*:\s*runSelfCheck\b/);
+});
+
+test('defines bounded J2000 UTC time helpers with signed elapsed labels', () => {
+  assertContracts(html, {
+    j2000: /\bJ2000_MS\s*=\s*Date\.UTC\(\s*2000\s*,\s*0\s*,\s*1\s*,\s*12\s*\)/,
+    dayBound: /\bSIM_DAY_LIMIT\s*=\s*36525\b/,
+    clamp: /function\s+clampSimDays\s*\([^)]+\)\s*\{[\s\S]*?(?:-SIM_DAY_LIMIT|-36525)[\s\S]*?(?:SIM_DAY_LIMIT|36525)/,
+    forwardDate: /function\s+simDateFromDays\s*\([^)]+\)\s*\{[\s\S]*?J2000_MS[\s\S]*?86400000/,
+    reverseDate: /function\s+simDaysFromDate\s*\([^)]+\)\s*\{[\s\S]*?J2000_MS[\s\S]*?86400000/,
+    elapsed: /function\s+formatElapsedDays\s*\([^)]+\)\s*\{[\s\S]*?(?:[+\-]|sign)/,
+  });
+
+  const helpers = [
+    constantSource('J2000_MS'), constantSource('SIM_DAY_LIMIT'),
+    functionSource('clampSimDays'), functionSource('simDateFromDays'),
+    functionSource('simDaysFromDate'), functionSource('formatElapsedDays'),
+  ].join('\n');
+  const time = Function(`${helpers}; return { J2000_MS, clampSimDays, simDateFromDays, simDaysFromDate, formatElapsedDays };`)();
+  assert.equal(time.J2000_MS, Date.UTC(2000, 0, 1, 12));
+  assert.equal(time.clampSimDays(-36526), -36525);
+  assert.equal(time.clampSimDays(36526), 36525);
+  assert.equal(time.simDateFromDays(0).toISOString(), '2000-01-01T12:00:00.000Z');
+  assert.equal(time.simDateFromDays(-36524).toISOString(), '1900-01-01T12:00:00.000Z');
+  assert.equal(time.simDateFromDays(36525).toISOString(), '2100-01-01T12:00:00.000Z');
+  assert.equal(time.simDaysFromDate(time.simDateFromDays(-123.5)), -123.5);
+  assert.match(time.formatElapsedDays(-1), /^-/);
+  assert.match(time.formatElapsedDays(1), /^\+/);
+});
+
+test('uses shared playback modes and time-scale controls with every approved preset', () => {
+  const setupUI = section('function setupUI() {', 'function clearSpawned() {');
+  assertContracts(html, {
+    presets: /\bTIME_SCALE_PRESETS\s*=\s*\[\s*0\.5\s*,\s*1\s*,\s*2\s*,\s*5\s*,\s*10\s*,\s*20\s*,\s*50\s*,\s*100\s*,\s*200\s*\]/,
+    playbackSetter: /function\s+setPlayback\s*\([^)]+\)/,
+    timeScaleSetter: /function\s+setTimeScale\s*\([^)]+\)/,
+  });
+  const sidebarPlayback = listenerWindow(setupUI, 'playing', 'change');
+  assert.match(sidebarPlayback, /setPlayback\(/);
+  assertContracts(sidebarPlayback, { forward: /['"]forward['"]/, paused: /['"]paused['"]/ });
+  for (const [id, mode] of [['barPlay', 'forward'], ['barPause', 'paused'], ['barReverse', 'reverse']]) {
+    assert.match(listenerWindow(setupUI, id, 'click'), new RegExp(`setPlayback\\(\\s*['"]${mode}['"]\\s*\\)`));
+  }
+  assert.match(listenerWindow(setupUI, 'speed', 'input'), /setTimeScale\(/);
+  assert.match(listenerWindow(setupUI, 'barTimeScale', 'input'), /setTimeScale\(/);
+  const playback = functionSource('setPlayback');
+  const scale = functionSource('setTimeScale');
+  assertContracts(playback, { forward: /['"]forward['"]/, reverse: /['"]reverse['"]/, paused: /['"]paused['"]/ });
+  assert.match(playback, /CONFIG\./);
+  assert.match(playback, /(?:barPlay|barPause|barReverse)/);
+  assert.match(playback, /ui\(\s*['"]playing['"]\s*\)/);
+  assert.match(scale, /CONFIG\.timeScale/);
+  assert.match(scale, /ui\(\s*['"]speed['"]\s*\)/);
+  assert.match(scale, /ui\(\s*['"]barTimeScale['"]\s*\)/);
+});
+
+test('keeps simulated time running behind the title screen and makes timeline seeks deterministic', () => {
+  const updateLoop = section('function update(dt) {', 'function runSelfCheck()');
+  const setupUI = section('function setupUI() {', 'function clearSpawned() {');
+  assert.match(updateLoop, /const\s+dDays\s*=\s*CONFIG\.playing\s*\?/,
+    'Simulated time must advance whenever playback is on, title screen included');
+  assert.doesNotMatch(updateLoop, /dDays\s*=\s*titleMode/,
+    'Title mode must not freeze the simulation clock');
+  assertContracts(html, {
+    seek: /function\s+seekSimulationTime\s*\([^)]+\)/,
+    rebuild: /function\s+rebuildSimulationAt\s*\([^)]+\)/,
+  });
+  const seek = functionSource('seekSimulationTime');
+  assertContracts(seek, {
+    target: /(?:const|let)\s+target\s*=\s*clampSimDays\(/,
+    assignment: /simDays\s*=\s*target/,
+    pause: /setPlayback\(\s*['"]paused['"]\s*\)/,
+    oneRebuild: /rebuildSimulationAt\(\s*target\s*,\s*(?:reason|['"][^'"]+['"])\s*\)/,
+  });
+  assert.equal((seek.match(/\brebuildSimulationAt\s*\(/g) || []).length, 1, 'Hard seek must rebuild exactly once');
+  const input = listenerWindow(setupUI, 'timelineScrubber', 'input');
+  const change = listenerWindow(setupUI, 'timelineScrubber', 'change');
+  assert.match(input, /setPlayback\(\s*['"]paused['"]\s*\)/);
+  assert.match(input, /(?:previewTimeline|updateTimelinePreview)\(/);
+  assert.doesNotMatch(input, /(?:seekSimulationTime|rebuildSimulationAt)\(/);
+  assert.match(change, /seekSimulationTime\(/);
+  assert.equal((change.match(/\bseekSimulationTime\s*\(/g) || []).length, 1, 'Scrubber change must seek once');
+});
+
+test('supports reverse time without irreversible updates and rebuilds rail poses from absolute days', () => {
+  const updateLoop = section('function update(dt) {', 'function runSelfCheck()');
+  assert.match(html, /function\s+setTimeScale\s*\([^)]+\)/, 'Reverse playback must use the shared time-scale setter');
+  assert.match(updateLoop, /const\s+dDays\s*=[\s\S]*?CONFIG\.timeScale/);
+  assertContracts(updateLoop, {
+    reverseGuard: /if\s*\(\s*dDays\s*>\s*0\s*\)[\s\S]*?updateDynamics\(/,
+    absoluteRailPose: /orbitPos\(\s*def\s*,\s*rec\.theta0\s*\+\s*Math\.PI\s*\*\s*2\s*\*\s*simDays\s*\/\s*def\.periodDays/,
+    immutableReverse: /if\s*\(\s*dDays\s*>\s*0\s*\)[\s\S]*?(?:checkEclipses|checkMajorCollisions)/,
+  });
+});
+
+test('builds finite, unit-labelled summaries for planets and small bodies', () => {
+  assertContracts(html, {
+    summary: /function\s+buildObjectSummary\s*\([^)]+\)/,
+    metricSchema: /(?:SUMMARY_METRIC_KEYS|SUMMARY_METRICS)/,
+    finiteMetric: /function\s+(?:finiteMetric|metricValue)\s*\([^)]+\)/,
+  });
+  const summary = functionSource('buildObjectSummary');
+  const metricKeys = [
+    'cameraDistance', 'parentDistance', 'velocity', 'orbitalSpeed',
+    'rotationSpeed', 'temperature', 'mass', 'radius', 'gravity',
+    'orbitalPeriod', 'coordinates',
+  ];
+  assertContracts(summary, {
+    objectResult: /return\s*\{/,
+    metrics: /\bmetrics\s*:/,
+    finite: /(?:finiteMetric|metricValue)\(/,
+    units: /\bunit\s*:/,
+    qualifier: /(?:estimate|modeled|simulator)/i,
+    smallBody: /(?:asteroid|comet)/,
+    unboundStatus: /\{\s*periodDays\s*:\s*0\s*,\s*status\s*:\s*['"]Unbound['"]\s*\}/,
+    finiteFallback: /Number\.isFinite[\s\S]*?(?:\?[^:]+:[^;\n]+|\|\|\s*0)/,
+  });
+  for (const density of [600, 2500, 3300]) assert.match(summary, new RegExp(`\\b${density}\\b`));
+  for (const key of metricKeys) assert.match(summary, new RegExp(`\\b${key}\\s*:`), `Missing summary metric: ${key}`);
+  const profiles = constantSource('STAR_SUMMARY_PROFILES');
+  assertContracts(profiles, {
+    milkyWay: /MilkyWay\s*:\s*\{[\s\S]*?massSolar\s*:\s*1\b[\s\S]*?radiusKm\s*:\s*695700\b[\s\S]*?tempK\s*:\s*5772\b[\s\S]*?rotationDays\s*:\s*25\.4\b/,
+    andromeda: /Andromeda\s*:\s*\{[\s\S]*?massSolar\s*:\s*2\b[\s\S]*?radiusSolar\s*:\s*1\.7\b[\s\S]*?tempK\s*:\s*9000\b[\s\S]*?rotationDays\s*:\s*1\.5\b/,
+  });
+});
+
+test('preserves selected object identity across rebuilds and falls back safely on galaxy changes', () => {
+  assertContracts(html, {
+    selectionKey: /function\s+(?:selectionKeyFor|objectSelectionKey)\s*\([^)]+\)/,
+    restore: /function\s+restore(?:Object)?Selection\s*\([^)]+\)/,
+  });
+  const key = functionSource(html.match(/function\s+(selectionKeyFor|objectSelectionKey)\s*\(/)?.[1] || 'selectionKeyFor');
+  const restore = functionSource(html.match(/function\s+(restore(?:Object)?Selection)\s*\(/)?.[1] || 'restoreSelection');
+  const switcher = section('function switchGalaxy(index) {', '/* ================================================================\n   CAMERA');
+  assertContracts(key, { star: /isSun/, planet: /def\.name/, moon: /isMoon[\s\S]*?host/, residentBlackHole: /isBH/ });
+  assertContracts(restore, { lookup: /\.find\(/, liveRecords: /(?:planets|byMesh|blackHoles)/, fallback: /\bfallback\b/ });
+  assert.match(switcher, /(?:restore(?:Object)?Selection\(\s*null|selectRecord\(\s*null)/);
+  assert.match(switcher, /(?:flyTo\(\s*null\s*\)|setCameraMode\(\s*['"]orbit['"]\s*\))/);
+});
+
+test('exposes an accessible bottom information bar and mobile Details disclosure', () => {
+  const bar = elementSourceById('bottomBar');
+  for (const id of ['barUtcDate', 'barElapsed', 'barTimeScale', 'barSelectedName', 'barSelectedType', 'barSelectedMetric']) {
+    assert.match(bar, new RegExp(`\\bid=["']${id}["']`), `Missing ${id} inside bottom bar`);
+  }
+  for (const id of ['barPlay', 'barPause', 'barReverse']) {
+    assertAttributes(startTagById(id, bar), { 'aria-label': /\S/, 'aria-pressed': /(?:true|false)/ });
+  }
+  assertAttributes(startTagById('timelineScrubber', bar), { type: /range/, 'aria-label': /\S/, 'aria-valuetext': /\S/ });
+  assertAttributes(startTagById('timelineDetails', bar), {
+    'aria-expanded': /(?:true|false)/,
+    'aria-controls': /timelineDetailsPanel/,
+  });
+  assertAttributes(startTagById('timelineDetailsPanel', bar), { 'aria-hidden': /(?:true|false)/ });
+  const setupUI = section('function setupUI() {', 'function clearSpawned() {');
+  const details = listenerWindow(setupUI, 'timelineDetails', 'click');
+  assert.match(details, /setAttribute\(\s*['"]aria-expanded['"]/);
+  assert.match(details, /(?:timelineDetailsPanel[\s\S]*?(?:\.hidden\s*=|aria-hidden)|setAttribute\(\s*['"]aria-hidden['"])/);
+  assert.match(setupUI, /timelineScrubber[\s\S]*?setAttribute\(\s*['"]aria-valuetext['"]/);
+  for (const id of ['timelinePrev', 'timelineNext']) {
+    assertAttributes(startTagById(id, bar), { 'aria-label': /\S/ });
+    assert.match(setupUI, new RegExp(`${id}[\\s\\S]*?\\.disabled\\s*=`));
+  }
+});
+
+test('re-enables orbit controls when a rebuild cancels a camera flight', () => {
+  const build = functionSource('buildGalaxy');
+  const cancelIndex = build.indexOf('flight.active = false');
+  assert.ok(cancelIndex !== -1, 'buildGalaxy must cancel any active flight');
+  const enable = build.indexOf('controls.enabled', cancelIndex);
+  assert.ok(enable !== -1, 'Cancelling a flight must restore the controls it disabled');
+});
+
+test('enables collision physics by default while keeping the manual toggle', () => {
+  const config = section('const CONFIG = {', '};');
+  assert.match(config, /collisions:\s*true/);
+  const setupUI = section('function setupUI() {', 'function clearSpawned() {');
+  assert.match(setupUI, /bindSwitch\(\s*['"]collisions['"]\s*,\s*CONFIG\s*,\s*['"]collisions['"]/);
+});
+
+test('records user spawns and replays them across timeline traversal and rebuilds', () => {
+  assertContracts(html, {
+    log: /const\s+interactionLog\s*=\s*\[\]/,
+    record: /function\s+recordInteraction\s*\(/,
+    replay: /function\s+replayInteraction\s*\(/,
+    sync: /function\s+syncInteractionEvents\s*\(/,
+    restore: /function\s+restoreInteractionEvents\s*\(/,
+  });
+  const updateLoop = section('function update(dt) {', 'function runSelfCheck()');
+  assert.match(updateLoop, /syncInteractionEvents\(\s*prevSimDays\s*,\s*simDays\s*\)/);
+  assert.match(functionSource('buildGalaxy'), /restoreInteractionEvents\(\)/);
+  const setupUI = section('function setupUI() {', 'function clearSpawned() {');
+  for (const id of ['spawnComet', 'spawnAsteroid', 'spawnAstBelt', 'spawnBH', 'launchBtn']) {
+    assert.match(
+      listenerWindow(setupUI, id, 'click'),
+      /record(?:Interaction|SpawnedBody)\(/,
+      `Unrecorded interaction: ${id}`,
+    );
+  }
+  assert.match(functionSource('clearSpawned'), /interactionLog/);
+  assert.match(functionSource('replayInteraction'), /replayingInteraction\s*=\s*true/);
+});
+
+test('replays a spawn when playback crosses its timestamp and despawns it on rewind', () => {
+  const sync = functionSource('syncInteractionEvents');
+  const result = Function(`
+    const currentGalaxy = 0; const blackHoles = []; const dynBodies = [];
+    const removed = []; const replayed = [];
+    const removeBody = body => { body.alive = false; removed.push(body); };
+    const rebuildSimulationAt = () => {};
+    const replayInteraction = event => {
+      event.handle = { alive: true };
+      dynBodies.push(event.handle);
+      replayed.push(event);
+    };
+    const interactionLive = event =>
+      !!event.handle && event.handle.alive !== false && dynBodies.includes(event.handle);
+    const interactionLog = [{ day: 5, galaxy: 0, type: 'spawn', props: {}, handle: null }];
+    ${sync}
+    syncInteractionEvents(0, 10);
+    const firstReplay = replayed.length;
+    syncInteractionEvents(10, 2);
+    const removedCount = removed.length;
+    const handleCleared = interactionLog[0].handle === null;
+    syncInteractionEvents(2, 10);
+    return { firstReplay, removedCount, handleCleared, secondReplay: replayed.length };
+  `)();
+  assert.equal(result.firstReplay, 1, 'Forward crossing must fire the event');
+  assert.equal(result.removedCount, 1, 'Rewinding past the event must despawn its body');
+  assert.equal(result.handleCleared, true);
+  assert.equal(result.secondReplay, 2, 'The event must re-fire on the next forward crossing');
+});
+
+test('keeps range-slider fills glued to the thumb, including programmatic updates', () => {
+  const paint = functionSource('paintRangeFill');
+  assert.match(paint, /--fill/);
+  const fake = {
+    max: '100', min: '0', value: '25',
+    style: { props: {}, setProperty(key, value) { this.props[key] = value; } },
+  };
+  Function(`${paint}; paintRangeFill(arguments[0]);`)(fake);
+  assert.equal(fake.style.props['--fill'], 'calc(7px + (100% - 14px) * 0.25)');
+  for (const name of ['setTimeScale', 'refreshBottomInfoBar', 'setTimeScaleDisplayOnly']) {
+    assert.match(functionSource(name), /paintRangeFill\(/, `${name} must repaint slider fill`);
+  }
+  const setupUI = section('function setupUI() {', 'function clearSpawned() {');
+  assert.match(listenerWindow(setupUI, 'timelineScrubber', 'input'), /paintRangeFill\(/);
+});
+
+test('lets users collapse the bottom bar and gives timestamps visual hierarchy', () => {
+  const bar = elementSourceById('bottomBar');
+  assertAttributes(startTagById('barCollapse', bar), { 'aria-expanded': /(?:true|false)/, 'aria-label': /\S/ });
+  const setupUI = section('function setupUI() {', 'function clearSpawned() {');
+  const toggle = listenerWindow(setupUI, 'barCollapse', 'click');
+  assert.match(toggle, /classList\.toggle\(\s*['"]collapsed['"]\s*\)/);
+  assert.match(toggle, /aria-expanded/);
+  const styles = section('<style>', '</style>');
+  assert.match(styles, /#bottomBar\.collapsed [^{]*\{[^}]*display:\s*none/);
+  assert.match(styles, /#barUtcTime\s*\{[^}]*font-size:\s*19px/);
+  assert.match(styles, /\.bar-detail small\s*\{[^}]*text-transform:\s*uppercase/);
+});
+
+test('bounds bloom input so high intensities glow smoothly instead of squaring', () => {
+  assert.match(html, /const\s+BloomClampShader\s*=\s*\{/);
+  const shader = section('const BloomClampShader = {', '};');
+  assert.match(shader, /uCap/);
+  assert.match(shader, /min\(\s*c\.rgb/);
+  const setup = functionSource('setupPostFX');
+  const clampIndex = setup.indexOf('BloomClampShader');
+  const bloomIndex = setup.indexOf('UnrealBloomPass(');
+  assert.ok(clampIndex !== -1 && clampIndex < bloomIndex, 'Clamp pass must run before bloom');
+});
+
+test('extends the runtime self-check to timeline, selection, bar, and finite metrics', () => {
+  const selfCheck = section('function runSelfCheck()', '/* ================================================================\n   BOOT');
+  assertContracts(selfCheck, {
+    timeline: /checks\.timeline\s*=\s*(?!true\b|false\b)[^;]+;/,
+    bar: /checks\.bottomBar\s*=\s*(?!true\b|false\b)[^;]+;/,
+    selection: /checks\.selection\s*=\s*(?!true\b|false\b)[^;]+;/,
+    finiteMetrics: /checks\.(?:finiteMetrics|summaryMetrics)\s*=\s*(?!true\b|false\b)[^;]+;/,
+  });
 });

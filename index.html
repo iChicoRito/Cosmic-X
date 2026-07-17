@@ -19,6 +19,7 @@
     --ring: rgba(138, 184, 255, 0.55);
     --font: 'Segoe UI', system-ui, -apple-system, sans-serif;
     --font-display: 'Space Grotesk', 'Segoe UI', system-ui, sans-serif;
+    --bottom-bar-offset: calc(166px + env(safe-area-inset-bottom));
   }
 
   /* author styles on [hidden] elements (e.g. .slider-row's display:flex) would
@@ -74,7 +75,7 @@
   }
   #uiBody {
     padding: 0 16px 14px; display: flex; flex-direction: column; gap: 13px;
-    max-height: calc(100vh - 158px); overflow-y: auto; scrollbar-width: thin;
+    max-height: calc(100vh - 120px - var(--bottom-bar-offset)); overflow-y: auto; scrollbar-width: thin;
   }
   #ui.collapsed #uiBody, #ui.collapsed .tabs { display: none; }
 
@@ -212,7 +213,7 @@
     background: rgba(138, 184, 255, 0.12); border: 1px solid rgba(138, 184, 255, 0.3);
     color: var(--accent); font: 600 10px var(--font); letter-spacing: .1em; text-transform: uppercase;
   }
-  #ipBody { padding: 0 16px 16px; display: flex; flex-direction: column; gap: 12px; max-height: calc(100vh - 130px); overflow-y: auto; scrollbar-width: thin; }
+  #ipBody { padding: 0 16px 16px; display: flex; flex-direction: column; gap: 12px; max-height: calc(100vh - 108px - var(--bottom-bar-offset)); overflow-y: auto; scrollbar-width: thin; }
   /* the panel's labels sit directly above bars/rows, not inside a gapped column */
   #ipBody .section-label { margin-bottom: 4px; }
   .stat-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 9px 14px; }
@@ -273,7 +274,7 @@
 
   /* ---- toasts ---- */
   /* above the title overlay (z 20) so toasts show before the sim starts */
-  #toasts { position: fixed; left: 16px; bottom: 16px; z-index: 21; display: flex; flex-direction: column; gap: 8px; max-width: min(360px, 80vw); }
+  #toasts { position: fixed; left: 16px; bottom: var(--bottom-bar-offset); z-index: 21; display: flex; flex-direction: column; gap: 8px; max-width: min(360px, 80vw); }
   .toast {
     display: flex; align-items: baseline; gap: 9px;
     padding: 9px 14px;
@@ -307,7 +308,7 @@
   .cam-btn.active { border-color: rgba(138, 184, 255, 0.55); background: rgba(138, 184, 255, 0.12); }
   .cam-btn:focus-visible { outline: 2px solid var(--ring); outline-offset: 1px; }
   #modeChip {
-    position: fixed; bottom: 18px; left: 50%; translate: -50% 0; z-index: 11;
+    position: fixed; bottom: var(--bottom-bar-offset); left: 50%; translate: -50% 0; z-index: 11;
     display: none; align-items: center; gap: 8px;
     padding: 6px 14px; border-radius: 999px;
     color: var(--fg); font: 600 11px var(--font); letter-spacing: .14em; text-transform: uppercase;
@@ -330,7 +331,7 @@
   #teleOverlay .reticle::before { left: 50%; top: -6%; bottom: -6%; width: 1px; }
   #teleOverlay .reticle::after { top: 50%; left: -6%; right: -6%; height: 1px; }
   #teleReadout {
-    position: absolute; bottom: 26px; left: 50%; translate: -50% 0;
+    position: absolute; bottom: var(--bottom-bar-offset); left: 50%; translate: -50% 0;
     padding: 8px 16px;
     color: var(--accent); font: 11.5px/1.5 ui-monospace, 'Cascadia Mono', monospace; letter-spacing: .06em;
     text-align: center;
@@ -390,6 +391,64 @@
   }
   #fade.on { opacity: 1; }
 
+  /* ---- responsive timeline and information rail ---- */
+  #bottomBar {
+    position: fixed; left: 16px; right: 16px; bottom: calc(12px + env(safe-area-inset-bottom));
+    z-index: 14; color: var(--fg); font: 12px/1.35 var(--font);
+    opacity: 0; translate: 0 10px; pointer-events: none;
+    transition: opacity .6s ease, translate .6s ease;
+  }
+  #bottomBar.visible { opacity: 1; translate: 0 0; pointer-events: auto; }
+  .bar-primary {
+    display: grid; grid-template-columns: minmax(220px, .8fr) auto minmax(220px, 1.2fr) auto;
+    align-items: center; gap: 14px; padding: 10px 12px;
+  }
+  .bar-time, .bar-selection { min-width: 0; }
+  .bar-time strong, .bar-selection strong { display: block; font-size: 14px; }
+  /* timestamp hierarchy: quiet uppercase date label above a large clock */
+  #barUtcDate {
+    font-size: 10.5px; font-weight: 600; color: var(--muted);
+    text-transform: uppercase; letter-spacing: .14em; font-variant-numeric: tabular-nums;
+  }
+  #barUtcTime { font-size: 19px; font-weight: 650; letter-spacing: .01em; font-variant-numeric: tabular-nums; }
+  #barElapsed { font-size: 11px; font-variant-numeric: tabular-nums; }
+  .bar-time span, .bar-selection span, .bar-detail span { color: var(--muted); }
+  .bar-controls { display: flex; align-items: center; gap: 6px; }
+  .bar-controls button, .bar-extra-controls button, #timelineDetails, #barCollapse {
+    width: auto; min-width: 34px; padding: 7px 9px;
+    background: var(--glass-soft); border: 1px solid var(--glass-border);
+    color: var(--fg); font: 600 11px var(--font); cursor: pointer;
+  }
+  #barCollapse { align-self: start; }
+  #bottomBar.collapsed .bar-controls, #bottomBar.collapsed .bar-selection,
+  #bottomBar.collapsed .bar-timeline, #bottomBar.collapsed #timelineDetailsPanel { display: none; }
+  #bottomBar.collapsed .bar-primary { grid-template-columns: 1fr auto; }
+  #bottomBar.collapsed #barCollapse { align-self: center; }
+  .bar-controls button[aria-pressed="true"], .bar-extra-controls button[aria-pressed="true"] { background: rgba(138, 184, 255, 0.25); border-color: rgba(138, 184, 255, 0.5); }
+  .bar-controls button:disabled, .bar-extra-controls button:disabled { opacity: .35; cursor: default; }
+  .bar-extra-controls { display: flex; align-items: center; gap: 6px; }
+  .bar-speed { display: grid; grid-template-columns: auto 84px auto; align-items: center; gap: 6px; }
+  #barTimeScale { width: 84px; }
+  #timelineDetailsPanel {
+    position: relative; display: grid; grid-template-columns: auto 1fr;
+    gap: 8px 16px; align-items: center; padding: 8px 12px;
+    border-top: 1px solid var(--glass-border);
+  }
+  .bar-detail { display: flex; flex-wrap: wrap; gap: 6px 18px; min-width: 0; }
+  /* stat chips: tiny uppercase label stacked over its value */
+  .bar-detail span { display: inline-flex; flex-direction: column; gap: 1px; vertical-align: top; }
+  .bar-detail small {
+    font-size: 9px; font-weight: 600; color: var(--muted);
+    text-transform: uppercase; letter-spacing: .12em;
+  }
+  .bar-detail b { font-size: 12px; font-weight: 600; color: var(--fg); font-variant-numeric: tabular-nums; }
+  .bar-detail em { font-style: normal; font-size: 10px; color: var(--muted); }
+  #barSelectedMetric { grid-column: 1 / -1; white-space: nowrap; overflow-x: auto; scrollbar-width: thin; }
+  #barSelectedMetric span { white-space: nowrap; }
+  .bar-timeline { grid-column: 1 / -1; display: grid; grid-template-columns: auto minmax(180px, 1fr) auto; align-items: center; gap: 8px; }
+  #timelineScrubber { min-width: 160px; }
+  #timelineDetails { display: none; }
+
   @media (max-width: 720px) {
     #ui { top: 12px; right: 12px; width: min(318px, calc(100vw - 24px)); }
     #infoPanel {
@@ -400,9 +459,33 @@
       opacity: 0; translate: 10px 0; pointer-events: none;
     }
     #warnings {
-      top: auto; bottom: 64px; width: calc(100vw - 24px);
+      top: auto; bottom: var(--bottom-bar-offset); width: calc(100vw - 24px);
     }
     .warning-card { width: 100%; }
+    #bottomBar { left: 8px; right: 8px; bottom: calc(8px + env(safe-area-inset-bottom)); }
+    .bar-primary {
+      grid-template-columns: 1fr auto; gap: 7px 10px; padding: 8px;
+    }
+    .bar-time strong { display: inline; margin-right: 7px; font-size: 12px; }
+    #barUtcTime { font-size: 15px; }
+    .bar-selection { text-align: right; }
+    .bar-selection span { display: none; }
+    .bar-controls { grid-column: 1 / -1; display: grid; grid-template-columns: auto auto 1fr; }
+    .bar-speed { grid-template-columns: 1fr auto; }
+    .bar-speed label { display: none; }
+    #barTimeScale { width: 100%; }
+    .bar-timeline { grid-column: 1 / -1; grid-template-columns: 1fr auto; }
+    .bar-timeline > span { display: none; }
+    #timelineDetails { display: block; }
+    #timelineDetailsPanel {
+      position: absolute; left: 0; right: 0; bottom: 100%;
+      display: block; max-height: calc(100vh - var(--bottom-bar-offset) - 20px);
+      overflow-y: auto; background: rgba(7, 10, 17, .92);
+      border: 1px solid var(--glass-border);
+    }
+    #timelineDetailsPanel .bar-detail { margin-bottom: 8px; }
+    #timelineDetailsPanel .bar-extra-controls { flex-wrap: wrap; margin-bottom: 8px; }
+    #barSelectedMetric { white-space: normal; }
   }
   @media (prefers-reduced-motion: reduce) {
     #ui, #title, .switch .thumb, .btn { transition: none; }
@@ -464,7 +547,7 @@
       </div>
       <div class="slider-row">
         <div class="row"><span>Speed</span><span class="value" id="speedVal"></span></div>
-        <input id="speed" type="range" min="0" max="200" step="0.5">
+        <input id="speed" type="range" min="0" max="8" step="1">
       </div>
       <div class="slider-row">
         <div class="row"><span>Gravity</span><span class="value" id="gravityVal"></span></div>
@@ -659,6 +742,59 @@
 <!-- Active camera mode chip -->
 <div id="modeChip" class="glass"><span class="dot"></span><span id="modeChipLabel"></span><small>Esc to exit</small></div>
 
+<!-- Timeline and persistent selected-object summary -->
+<section id="bottomBar" class="glass" aria-label="Simulation timeline and selected object">
+  <div class="bar-primary">
+    <div class="bar-time">
+      <strong id="barUtcDate">2000-01-01</strong>
+      <strong id="barUtcTime">12:00:00 UTC</strong>
+    </div>
+    <div class="bar-controls">
+      <button id="barPlay" type="button" aria-label="Play forward" aria-pressed="true">&#9654;</button>
+      <button id="barPause" type="button" aria-label="Pause simulation" aria-pressed="false">&#10074;&#10074;</button>
+      <div class="bar-speed">
+        <label for="barTimeScale">Speed</label>
+        <input id="barTimeScale" type="range" min="0" max="8" step="1" aria-label="Simulation time scale">
+        <output id="barTimeScaleValue">10 d/s</output>
+      </div>
+    </div>
+    <div class="bar-selection">
+      <strong id="barSelectedName">Current system</strong>
+      <span id="barSelectedType">Galaxy system</span>
+    </div>
+    <button id="barCollapse" type="button" aria-expanded="true"
+      aria-label="Hide timeline panel" title="Hide timeline panel">&#9662;</button>
+    <div class="bar-timeline">
+      <span id="barElapsed">+0.00 days</span>
+      <input id="timelineScrubber" type="range" min="-36525" max="36525" step="0.01"
+        aria-label="Simulation date" aria-valuetext="2000-01-01 12:00:00 UTC">
+      <button id="timelineDetails" type="button" aria-expanded="false"
+        aria-controls="timelineDetailsPanel">Details</button>
+    </div>
+  </div>
+  <div id="timelineDetailsPanel" aria-hidden="false">
+    <div class="bar-extra-controls">
+      <button id="barReverse" type="button" aria-label="Play in reverse" aria-pressed="false">&#9664;</button>
+      <button id="timelinePrev" type="button" aria-label="Previous timeline stop">&#124;&lsaquo;</button>
+      <button id="timelineNext" type="button" aria-label="Next timeline stop">&rsaquo;&#124;</button>
+      <button id="barSpeedDown" type="button" aria-label="Decrease time scale">&minus;</button>
+      <button id="barSpeedUp" type="button" aria-label="Increase time scale">+</button>
+      <button id="timelineReset" type="button" aria-label="Reset to session start">Reset</button>
+      <button id="timelinePresent" type="button" aria-label="Jump to present">Now</button>
+    </div>
+    <div class="bar-detail">
+      <span><small>Day</small><b id="barDay">01</b></span>
+      <span><small>Month</small><b id="barMonth">January</b></span>
+      <span><small>Year</small><b id="barYear">2000</b></span>
+      <span><small>Universe</small><b id="barUniverseAge">13.8 billion years</b></span>
+      <span><small>Epoch</small><b id="barEpoch">J2000.000</b></span>
+      <span><small>Source</small><b id="barSelectedSource">Simulator model</b></span>
+      <span><small>Status</small><b id="barSelectedStatus">Current system</b></span>
+    </div>
+    <div id="barSelectedMetric" class="bar-detail">Metrics unavailable</div>
+  </div>
+</section>
+
 <script type="module">
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
@@ -682,8 +818,8 @@ const CONFIG = {
   timeScale: 10,          // simulated days per real second
   playing: true,
   gravityMult: 1,         // global gravity strength multiplier
-  // automatic events all start OFF: the sim stays inert until the user opts in
-  collisions: false,
+  // collisions start ON (user can disable); other automatic events start OFF
+  collisions: true,
   eclipses: false,
   autoNEAs: false,
   showTrails: true,
@@ -699,6 +835,48 @@ const CONFIG = {
   titleOrbit: { radius: 330, height: 120, rate: 0.05 },
   introDur: 3.5,
 };
+
+const J2000_MS = Date.UTC(2000, 0, 1, 12);
+const SIM_DAY_LIMIT = 36525;
+const TIME_SCALE_PRESETS = [0.5, 1, 2, 5, 10, 20, 50, 100, 200];
+const SESSION_START_MS = Math.min(
+  J2000_MS + SIM_DAY_LIMIT * 86400000,
+  Math.max(J2000_MS - SIM_DAY_LIMIT * 86400000, Date.now()),
+);
+
+function clampSimDays(days) {
+  return Math.max(-SIM_DAY_LIMIT, Math.min(SIM_DAY_LIMIT, Number.isFinite(days) ? days : 0));
+}
+
+function simDateFromDays(days) {
+  return new Date(J2000_MS + clampSimDays(days) * 86400000);
+}
+
+function simDaysFromDate(date) {
+  const ms = date instanceof Date ? date.getTime() : Number(date);
+  return clampSimDays((ms - J2000_MS) / 86400000);
+}
+
+function simulationTimeMs(days = simDays) {
+  return J2000_MS + clampSimDays(days) * 86400000;
+}
+
+function julianEpoch(ms = simulationTimeMs()) {
+  return 2000 + (ms - J2000_MS) / (365.25 * 86400000);
+}
+
+function formatUtcDate(date) {
+  return date.toISOString().slice(0, 10);
+}
+
+function formatUtcTime(date) {
+  return date.toISOString().slice(11, 19) + ' UTC';
+}
+
+function formatElapsedDays(days) {
+  const sign = days < 0 ? '-' : '+';
+  return sign + Math.abs(days).toFixed(2) + ' days';
+}
 
 // Gravitational parameter of one solar mass in scene units (u³/day²),
 // calibrated so a circular orbit at Earth's scaled distance takes ~365 days.
@@ -1100,6 +1278,26 @@ let bloomPass, fxaaPass, lensingPass, sunLight, ambientLight;
 // Screen-space gravitational lensing for the black hole.
 // ponytail: a UV pinch around the hole's screen position — real ray-traced
 // lensing needs a full GR shader; this reads right at a glance.
+// Soft-clamps HDR color before the bloom pass. Unbounded emissives (sun,
+// photon rings) saturate UnrealBloom's low-res mips so hard that the blur
+// kernel's cutoff shows as a square plateau at high strength; bounding the
+// input keeps the Gaussian falloff smooth at every intensity.
+const BloomClampShader = {
+  uniforms: {
+    tDiffuse: { value: null },
+    uCap: { value: 4.0 },
+  },
+  vertexShader: `varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }`,
+  fragmentShader: `
+    uniform sampler2D tDiffuse; uniform float uCap;
+    varying vec2 vUv;
+    void main() {
+      vec4 c = texture2D(tDiffuse, vUv);
+      vec3 over = max(c.rgb - vec3(uCap), vec3(0.0));
+      gl_FragColor = vec4(min(c.rgb, vec3(uCap)) + over / (1.0 + over), c.a);
+    }`,
+};
+
 const LensingShader = {
   uniforms: {
     tDiffuse: { value: null },
@@ -1156,6 +1354,7 @@ function setupPostFX() {
   composer = new EffectComposer(renderer);
   composer.setPixelRatio(Math.min(window.devicePixelRatio, QUALITY[CONFIG.quality].pixelRatio));
   composer.addPass(new RenderPass(scene, camera));
+  composer.addPass(new ShaderPass(BloomClampShader));
   bloomPass = new UnrealBloomPass(
     new THREE.Vector2(window.innerWidth, window.innerHeight),
     CONFIG.bloom.strength, CONFIG.bloom.radius, CONFIG.bloom.threshold);
@@ -1239,7 +1438,9 @@ const starLayers = [];
 let nebulaGroup, dustField;
 const pickTargets = [];
 const byMesh = new Map();
-let simDays = 0;
+let simDays = simDaysFromDate(SESSION_START_MS);
+let playbackDirection = 1;
+let selectedRecord = null;
 
 const _v1 = new THREE.Vector3(), _v2 = new THREE.Vector3(), _v3 = new THREE.Vector3();
 const pointerPar = new THREE.Vector2();
@@ -1385,7 +1586,9 @@ function createPlanet(def, index) {
 function addMoon(rec, mdef) {
   const pivot = new THREE.Group();
   pivot.rotation.x = THREE.MathUtils.degToRad(mdef.inc || 0);
-  pivot.rotation.y = Math.random() * Math.PI * 2;
+  const phase0 = [...(rec.def.name + '/' + mdef.name)]
+    .reduce((hash, char) => (hash * 31 + char.charCodeAt(0)) >>> 0, 7) / 4294967296 * Math.PI * 2;
+  pivot.rotation.y = phase0;
   const moonMat = new THREE.MeshStandardMaterial({
     map: createPlanetTexture({ tex: 'rocky', name: mdef.name, colors: mdef.colors || ['#9c9890', '#6e6a64', '#c4bfb6'] }, 500 + Math.floor(mdef.dist * 31)),
     roughness: 1, metalness: 0,
@@ -1401,7 +1604,7 @@ function addMoon(rec, mdef) {
   rec.anchor.add(pivot);
   const m = {
     def: mdef, host: rec, pivot, mesh, geoR, craters: [],
-    alive: true, visible: true, name: mdef.name, isMoon: true, anchor: mesh,
+    alive: true, visible: true, name: mdef.name, isMoon: true, anchor: mesh, phase0,
   };
   rec.moons.push(m);
   pickTargets.push(mesh);
@@ -2261,6 +2464,7 @@ function launchProjectile() {
   body.mass = uiParams.impMass;
   body.isProjectile = true;
   body.target = rec;
+  return body;
 }
 
 function handleImpact(body, rec) {
@@ -2313,6 +2517,7 @@ function handleMoonImpact(body, m) {
 function destroyMoon(m, point) {
   if (!m.alive) return;
   m.alive = false;
+  m.destroyed = true;
   m.visible = false;
   m.pivot.visible = false;
   const pi = pickTargets.indexOf(m.mesh);
@@ -2335,6 +2540,7 @@ function killPlanet(rec) {
   for (const m of rec.moons) {
     if (m.alive) {
       m.alive = false;
+      m.destroyed = true;
       m.visible = false;
       m.pivot.visible = false;
     }
@@ -2598,6 +2804,7 @@ function removeBody(body) {
   const pickIndex = pickTargets.indexOf(body.mesh);
   if (pickIndex >= 0) pickTargets.splice(pickIndex, 1);
   byMesh.delete(body.mesh);
+  if (selectedRecord === body) selectRecord(null);
   if (focused === body || (flight.active && flight.focus === body)) flyTo(null);
   if (infoTarget === body) closeInfoPanel();
   if (lastComet === body) lastComet = null;
@@ -2688,7 +2895,9 @@ function spawnBlackHole(massSuns, position) {
   for (const rec of planets) if (!rec.destroyed) makeDynamic(rec);
 
   pickTargets.push(horizon);
-  byMesh.set(horizon, { name: 'Black Hole', isBH: true, anchor: group, geoR: horizonR, visible: true, bh });
+  const record = { name: 'Black Hole', isBH: true, anchor: group, geoR: horizonR, visible: true, bh };
+  bh.record = record;
+  byMesh.set(horizon, record);
   camTargetsDirty = true;
   return bh;
 }
@@ -2718,6 +2927,7 @@ function disposeGroup(root) {
 }
 
 function buildGalaxy(index) {
+  const stableSelectionKey = index === currentGalaxy ? selectionKeyFor(selectedRecord) : null;
   closeInfoPanel();
   if (galaxyGroup) disposeGroup(galaxyGroup);
   galaxyGroup = new THREE.Group();
@@ -2731,7 +2941,11 @@ function buildGalaxy(index) {
   pickTargets.length = 0;
   byMesh.clear();
   sunRec = null; sunMesh = null; sunGroup = null; sunLight = null; lastComet = null;
-  focused = null; flight.active = false;
+  focused = null;
+  // cancelling a mid-air camera flight must also restore the controls the
+  // flight disabled, or orbit input stays dead after a galaxy switch
+  flight.active = false;
+  controls.enabled = !titleMode && (cameraState.mode === 'orbit' || cameraState.mode === 'follow');
   currentGalaxy = index;
   const g = GALAXIES[index];
 
@@ -2780,6 +2994,9 @@ function buildGalaxy(index) {
     ambientLight.intensity = 0.55;
   }
 
+  applyBaselinePose(simDays);
+  restoreInteractionEvents();
+  restoreSelection(stableSelectionKey);
   refreshPlanetGrid();
   refreshImpactTargets();
   refreshGalaxyInfo();
@@ -2789,7 +3006,9 @@ function buildGalaxy(index) {
 
 function switchGalaxy(index) {
   if (index === currentGalaxy) return;
+  selectRecord(null);
   setCameraMode('orbit');
+  flyTo(null);
   const fade = document.getElementById('fade');
   fade.classList.add('on');
   setTimeout(() => {
@@ -3129,6 +3348,7 @@ function setupPicking() {
     if (hit) {
       const record = byMesh.get(hit.object);
       cameraState.target = record;
+      selectRecord(record);
       syncCameraTargetSelect();
       if (cameraState.mode === 'orbit') flyTo(record);
       else if (cameraState.mode !== 'free') setCameraMode(cameraState.mode);
@@ -3160,6 +3380,209 @@ let infoRefreshTimer = 0;
 const toastCooldowns = new Map();
 const warningCards = new Map();
 const ATMO_COLORS = ['#8ab8ff', '#9fd8a0', '#e8c87a', '#c9a0ff', '#ff9a6a'];
+const SUMMARY_METRIC_KEYS = [
+  'cameraDistance', 'parentDistance', 'velocity', 'orbitalSpeed',
+  'rotationSpeed', 'temperature', 'mass', 'radius', 'gravity',
+  'orbitalPeriod', 'coordinates',
+];
+const STAR_SUMMARY_PROFILES = {
+  MilkyWay: { massSolar: 1, radiusKm: 695700, tempK: 5772, rotationDays: 25.4 },
+  Andromeda: { massSolar: 2, radiusSolar: 1.7, tempK: 9000, rotationDays: 1.5 },
+};
+
+function finiteMetric(value, unit, qualifier) {
+  const metric = { value: Number.isFinite(Number(value)) ? Number(value) : 0, unit: String(unit || '') };
+  if (qualifier) metric.qualifier = qualifier;
+  return metric;
+}
+
+function selectionKeyFor(record) {
+  if (!record) return null;
+  if (record.isSun) return 'star';
+  if (record.isMoon && record.host) return 'moon:' + record.host.def.name + '/' + record.def.name;
+  if (record.def?.name) return 'planet:' + record.def.name;
+  if (record.isBH && GALAXIES[currentGalaxy].blackHole && record.bh === blackHoles[0]) return 'black-hole:resident';
+  return null;
+}
+
+function selectRecord(record) {
+  selectedRecord = record || null;
+  refreshBottomInfoBar(true);
+  return selectedRecord;
+}
+
+function restoreSelection(key) {
+  const liveRecords = [
+    sunRec,
+    ...planets,
+    ...planets.flatMap(planet => planet.moons || []),
+    ...byMesh.values(),
+    ...blackHoles.map(blackHole => blackHole.record),
+  ].filter(Boolean);
+  const fallback = null;
+  const restored = key ? liveRecords.find(record => selectionKeyFor(record) === key) : fallback;
+  return selectRecord(restored || fallback);
+}
+
+function buildObjectSummary(record, galaxy = GALAXIES[currentGalaxy]) {
+  const coordinateDescriptor = { unit: 'scene u', qualifier: 'simulator modeled estimate' };
+  const units = {
+    cameraDistance: 'scene u', parentDistance: 'scene u', velocity: 'u/day',
+    orbitalSpeed: 'u/day', rotationSpeed: 'deg/day', temperature: '°C',
+    mass: 'kg', radius: 'km', gravity: 'm/s²', orbitalPeriod: 'days',
+    coordinates: 'scene u',
+  };
+  const position = record?.anchor
+    ? cameraTargetPosition(record, new THREE.Vector3())
+    : new THREE.Vector3();
+  const cameraDistance = camera?.position ? camera.position.distanceTo(position) : 0;
+  let parentDistance = position.length();
+  let velocity = record?.vel?.length?.() || 0;
+  let orbitalSpeed = velocity;
+  let rotationDays = 0;
+  let temperature = -270;
+  let temperatureUnit = units.temperature;
+  let mass = 0;
+  let radius = 0;
+  let radiusUnit = units.radius;
+  let gravity = 0;
+  let orbitalPeriod = 0;
+  let source = 'Simulator modeled estimate';
+  let status = 'Active';
+  const qualifier = 'simulator modeled estimate';
+  let factQualifier = qualifier;
+  const unboundTrajectory = { periodDays: 0, status: 'Unbound' };
+
+  if (!record) {
+    const starKey = galaxy === GALAXIES[0] ? 'MilkyWay' : 'Andromeda';
+    const profile = galaxy.star ? STAR_SUMMARY_PROFILES[starKey] : null;
+    const outer = galaxy.planets[galaxy.planets.length - 1];
+    const planetTemps = galaxy.planets.map(def => factsFor(def, !!galaxy.star).tempC);
+    mass = profile ? profile.massSolar * 1.98847e30 : (galaxy.blackHole?.mass || 0) * 1.98847e30;
+    radius = outer ? scaledDist(outer.au) : 0;
+    radiusUnit = 'scene u';
+    orbitalPeriod = outer?.periodDays || 0;
+    temperature = planetTemps.length ? planetTemps.reduce((sum, value) => sum + value, 0) / planetTemps.length : -270;
+    status = 'Current system';
+    source = 'Current-system simulator model';
+    parentDistance = 0;
+    velocity = 0;
+    orbitalSpeed = 0;
+  } else if (record.isSun) {
+    const profile = STAR_SUMMARY_PROFILES[galaxy === GALAXIES[0] ? 'MilkyWay' : 'Andromeda'];
+    mass = profile.massSolar * 1.98847e30;
+    radius = profile.radiusKm || profile.radiusSolar * 695700;
+    temperature = profile.tempK;
+    temperatureUnit = 'K';
+    rotationDays = profile.rotationDays;
+    parentDistance = 0;
+    source = 'Stellar profile';
+    if (galaxy === GALAXIES[0]) factQualifier = 'measured reference';
+  } else if (record.isBH) {
+    const massSolar = record.bh?.massSuns || 0;
+    mass = massSolar * 1.98847e30;
+    radius = 2.953339382 * massSolar;
+    temperature = massSolar > 0 ? 6.17e-8 / massSolar : 0;
+    temperatureUnit = 'K';
+    gravity = radius > 0 ? 299792458 ** 4 / (4 * 6.6743e-11 * mass) : 0;
+    rotationDays = 360 / (0.05 * 180 / Math.PI);
+    parentDistance = position.length();
+    source = 'Relativistic formulas; accretion-disk visual-model rate';
+  } else if (record.isMoon) {
+    const densityKgM3 = 3300;
+    radius = record.def.radiusE * 6371;
+    mass = densityKgM3 * 4 / 3 * Math.PI * (radius * 1000) ** 3;
+    gravity = radius > 0 ? 6.6743e-11 * mass / (radius * 1000) ** 2 : 0;
+    orbitalPeriod = Math.abs(record.def.periodDays);
+    rotationDays = orbitalPeriod;
+    parentDistance = position.distanceTo(cameraTargetPosition(record.host, new THREE.Vector3()));
+    orbitalSpeed = orbitalPeriod ? Math.PI * 2 * Math.abs(record.def.dist) / orbitalPeriod : 0;
+    velocity = (record.host.vel?.length?.() || 0) + orbitalSpeed;
+    temperature = sunRec ? 278 / Math.sqrt(Math.max(record.host.def.au, .001)) - 273.15 : -270;
+    source = 'Host-relative tidal simulator model; density 3300 kg/m3';
+  } else if (record.kind === 'asteroid' || record.kind === 'comet') {
+    const comet = record.kind === 'comet';
+    const densityKgM3 = comet ? 600 : 2500;
+    radius = Math.max(0, record.radius || 0);
+    mass = densityKgM3 * 4 / 3 * Math.PI * (radius * 1000) ** 3;
+    gravity = radius > 0 ? 6.6743e-11 * mass / (radius * 1000) ** 2 : 0;
+    rotationDays = comet ? .5 : 8 / 24;
+    const centralGM = sunRec ? GM_SUN : (blackHoles[0]?.GM || 0);
+    const energy = centralGM > 0 ? velocity * velocity / 2 - centralGM / Math.max(position.length(), .001) : 0;
+    let orbit = unboundTrajectory;
+    if (comet && Number.isFinite(record.a) && record.a > 0) {
+      orbit = { periodDays: Math.PI * 2 * Math.sqrt(record.a ** 3 / GM_SUN), status: 'Bound' };
+    } else if (centralGM > 0 && energy < 0) {
+      const a = -centralGM / (2 * energy);
+      orbit = { periodDays: Math.PI * 2 * Math.sqrt(a ** 3 / centralGM), status: 'Bound' };
+    }
+    orbitalPeriod = orbit.periodDays;
+    orbitalSpeed = velocity;
+    if (orbit.status === 'Unbound') status = unboundTrajectory.status;
+    const au = sunRec
+      ? Math.pow(Math.max(position.length(), .001) / CONFIG.distanceScale, 1 / CONFIG.distanceExp)
+      : 0;
+    temperature = sunRec ? 278 / Math.sqrt(Math.max(au, .001)) - 273.15 : -270;
+    source = comet
+      ? 'Dynamic comet model; density 600 kg/m3; 12 h rotation'
+      : 'Dynamic asteroid estimate; density 2500 kg/m3; 1 scene u = 1 km';
+  } else if (record.def) {
+    const facts = factsFor(record.def, !!galaxy.star);
+    radius = facts.radiusKm;
+    mass = facts.massKg;
+    gravity = facts.gravity;
+    temperature = facts.tempC;
+    rotationDays = Math.abs(record.def.rotHours) / 24;
+    orbitalPeriod = record.def.periodDays;
+    orbitalSpeed = orbitalPeriod ? Math.PI * 2 * position.length() / orbitalPeriod : 0;
+    velocity = record.mode === 'dynamic' ? record.vel.length() : orbitalSpeed;
+    source = PLANET_FACTS[record.def.name]
+      ? 'Measured reference facts with live simulator state'
+      : 'Modeled fictional-world facts with live simulator state';
+    if (PLANET_FACTS[record.def.name]) factQualifier = 'measured reference';
+  }
+
+  if (record?.destroyed) status = 'Destroyed';
+  else if (record?.visible === false) status = 'Hidden';
+  else if (record?.mining) status = 'Mining';
+  else if (record?.mined) status = 'Depleted';
+  else if (record?.isProjectile) status = 'Inbound projectile';
+  else if (record?.isNEA) status = 'Near-Earth';
+  else if (status !== 'Unbound' && (record?.kind || record?.mode === 'dynamic')) status = 'Dynamic';
+  else if (record?.mode === 'rail') status = 'Rail';
+
+  const coordinateMetric = Object.assign(
+    finiteMetric(position.length(), coordinateDescriptor.unit, coordinateDescriptor.qualifier),
+    {
+      x: Number.isFinite(position.x) ? position.x : 0,
+      y: Number.isFinite(position.y) ? position.y : 0,
+      z: Number.isFinite(position.z) ? position.z : 0,
+    },
+  );
+  const metrics = {
+    cameraDistance: finiteMetric(cameraDistance, units.cameraDistance, qualifier),
+    parentDistance: finiteMetric(parentDistance, units.parentDistance, qualifier),
+    velocity: finiteMetric(velocity, units.velocity, qualifier),
+    orbitalSpeed: finiteMetric(orbitalSpeed, units.orbitalSpeed, qualifier),
+    rotationSpeed: finiteMetric(rotationDays ? 360 / rotationDays : 0, units.rotationSpeed, factQualifier),
+    temperature: finiteMetric(temperature, temperatureUnit, factQualifier),
+    mass: finiteMetric(mass, units.mass, factQualifier),
+    radius: finiteMetric(radius, radiusUnit, factQualifier),
+    gravity: finiteMetric(gravity, units.gravity, factQualifier),
+    orbitalPeriod: finiteMetric(orbitalPeriod, units.orbitalPeriod, factQualifier),
+    coordinates: coordinateMetric,
+  };
+  return {
+    name: record ? bodyDisplayName(record) : galaxy.name + ' system',
+    type: record ? bodyTypeLabel(record) : galaxy.type,
+    source,
+    status,
+    metrics: SUMMARY_METRIC_KEYS.reduce((result, key) => {
+      result[key] = metrics[key] || finiteMetric(0, '', 'modeled estimate');
+      return result;
+    }, {}),
+  };
+}
 
 function armToastDismiss(item) {
   clearTimeout(item.dismissTimer);
@@ -3241,6 +3664,7 @@ function openInfoPanel(record) {
     closeInfoPanel();
     return;
   }
+  selectRecord(record);
   infoTarget = record;
   const panel = ui('infoPanel');
   if (!panel.contains(document.activeElement)) infoReturnFocus = document.activeElement;
@@ -3500,6 +3924,7 @@ function updateImpactWarnings() {
       card.addEventListener('click', () => {
         const target = card.warningTarget;
         if (!isCameraTargetLive(target)) return;
+        selectRecord(target);
         setCameraMode('orbit');
         flyTo(target);
         openInfoPanel(target);
@@ -3550,6 +3975,242 @@ function applyDistanceScale() {
     rec.trail.geometry.computeBoundingSphere();
   }
   if (belt) fillBeltMatrices();
+}
+
+function applyBaselinePose(targetDays) {
+  const days = clampSimDays(targetDays);
+  for (const rec of planets) {
+    const def = rec.def;
+    const angle = rec.theta0 + Math.PI * 2 * days / def.periodDays;
+    orbitPos(def, angle, rec.anchor.position);
+    rec.mesh.rotation.y = Math.PI * 2 * days * 24 / (def.rotHours || 24);
+    if (rec.cloudMesh) rec.cloudMesh.rotation.y = rec.mesh.rotation.y * 1.25;
+    for (const moon of rec.moons) {
+      moon.pivot.rotation.y = moon.phase0 + Math.PI * 2 * days / moon.def.periodDays;
+    }
+    if (rec.mode === 'dynamic' && blackHoles[0]) {
+      const r = Math.max(rec.anchor.position.length(), .001);
+      const speed = Math.sqrt(blackHoles[0].GM / r);
+      rec.vel.set(-Math.sin(angle), 0, Math.cos(angle)).multiplyScalar(speed);
+    }
+  }
+  if (sunMesh) {
+    const profile = STAR_SUMMARY_PROFILES[currentGalaxy === 0 ? 'MilkyWay' : 'Andromeda'];
+    sunMesh.rotation.y = Math.PI * 2 * days / profile.rotationDays;
+  }
+  if (belt) belt.rotation.y = -Math.PI * 2 * days / BELT_PERIOD_DAYS;
+  for (const blackHole of blackHoles) blackHole.disk.rotation.z = days * .05;
+}
+
+function rebuildSimulationAt(targetDays, reason) {
+  simDays = clampSimDays(targetDays);
+  buildGalaxy(currentGalaxy);
+  if (ui('bottomBar')) ui('bottomBar').dataset.lastRebuild = reason || 'timeline';
+}
+
+function seekSimulationTime(targetMs, reason) {
+  const target = clampSimDays((targetMs - J2000_MS) / 86400000);
+  setPlayback('paused');
+  simDays = target;
+  rebuildSimulationAt(target, reason);
+  refreshBottomInfoBar(true);
+}
+
+/* ================================================================
+   INTERACTION EVENT LOG
+   User spawns (Spawn/Impact tabs) are recorded with their simulation
+   timestamp so timeline playback reproduces them: rewinding past an
+   event despawns its body, playing forward across the timestamp (or
+   rebuilding at a later date) re-fires it from the recorded state.
+   ================================================================ */
+const interactionLog = []; // { day, galaxy, type: 'spawn'|'blackhole', props, handle }
+let replayingInteraction = false;
+
+function recordInteraction(type, props, handle) {
+  if (replayingInteraction) return;
+  interactionLog.push({ day: simDays, galaxy: currentGalaxy, type, props, handle: handle || null });
+  interactionLog.sort((a, b) => a.day - b.day);
+}
+
+function interactionLive(event) {
+  if (!event.handle) return false;
+  if (event.type === 'blackhole') return blackHoles.includes(event.handle);
+  return event.handle.alive !== false && dynBodies.includes(event.handle);
+}
+
+// ponytail: bodies re-enter at their recorded spawn state; no trajectory
+// fast-forward when seeking past an event. Integrate headless catch-up if
+// positional accuracy after long seeks starts to matter.
+function replayInteraction(event) {
+  const p = event.props;
+  replayingInteraction = true;
+  try {
+    if (event.type === 'blackhole') {
+      event.handle = spawnBlackHole(p.massSuns, new THREE.Vector3().fromArray(p.pos));
+      return;
+    }
+    const body = p.comet ? spawnComet(p.a, p.e, p.color) : spawnAsteroid(false);
+    body.mesh.position.fromArray(p.pos);
+    body.vel.fromArray(p.vel);
+    if (p.size) { body.mesh.scale.setScalar(p.size); body.radius = p.size; }
+    if (p.mass) body.mass = p.mass;
+    if (p.nea) body.isNEA = true;
+    if (p.projectile) {
+      body.isProjectile = true;
+      body.target = planets[p.targetIndex] || null;
+    }
+    event.handle = body;
+  } finally {
+    replayingInteraction = false;
+  }
+}
+
+// Called every tick with the sim-day interval just traversed.
+function syncInteractionEvents(prevDays, nowDays) {
+  if (nowDays > prevDays) {
+    for (const event of interactionLog) {
+      if (event.galaxy !== currentGalaxy || interactionLive(event)) continue;
+      if (event.day > prevDays && event.day <= nowDays) replayInteraction(event);
+    }
+  } else if (nowDays < prevDays) {
+    for (const event of interactionLog) {
+      if (event.galaxy !== currentGalaxy || event.day <= nowDays || event.day > prevDays) continue;
+      if (!interactionLive(event)) continue;
+      if (event.type === 'blackhole') {
+        // a hole pulled every planet off its rails — only a rebuild undoes that
+        rebuildSimulationAt(nowDays, 'event-rewind');
+        return;
+      }
+      removeBody(event.handle);
+      event.handle = null;
+    }
+  }
+}
+
+// After a rebuild wipes all dynamic bodies, re-fire every event at or
+// before the current date; later events re-arm for the next crossing.
+function restoreInteractionEvents() {
+  for (const event of interactionLog) {
+    event.handle = null;
+    if (event.galaxy === currentGalaxy && event.day <= simDays) replayInteraction(event);
+  }
+}
+
+function setPlayback(mode) {
+  if (!['forward', 'reverse', 'paused'].includes(mode)) return;
+  const nextDirection = mode === 'reverse' ? -1 : 1;
+  if (mode !== 'paused' && nextDirection !== playbackDirection) {
+    playbackDirection = nextDirection;
+    rebuildSimulationAt(simDays, 'direction-change');
+  }
+  CONFIG.playing = mode !== 'paused';
+  const playing = ui('playing');
+  if (playing) playing.checked = CONFIG.playing;
+  for (const [id, active] of [
+    ['barPlay', CONFIG.playing && playbackDirection > 0],
+    ['barPause', !CONFIG.playing],
+    ['barReverse', CONFIG.playing && playbackDirection < 0],
+  ]) {
+    const button = ui(id);
+    if (button) button.setAttribute('aria-pressed', String(active));
+  }
+  refreshBottomInfoBar(true);
+}
+
+// Paint a range input's filled-track gradient. The fill stop is anchored to
+// the thumb CENTER (thumb travel spans width minus one 14px thumb), so track
+// and thumb stay aligned at every value and width — plain percentages drift
+// near the ends.
+function paintRangeFill(el) {
+  if (!el) return;
+  const span = Number(el.max) - Number(el.min);
+  const frac = span ? (Number(el.value) - Number(el.min)) / span : 0;
+  el.style.setProperty('--fill', 'calc(7px + (100% - 14px) * ' + frac + ')');
+}
+
+function setTimeScale(value) {
+  const requested = Number(value);
+  CONFIG.timeScale = TIME_SCALE_PRESETS.reduce((best, preset) =>
+    Math.abs(preset - requested) < Math.abs(best - requested) ? preset : best,
+  TIME_SCALE_PRESETS[0]);
+  const index = TIME_SCALE_PRESETS.indexOf(CONFIG.timeScale);
+  const speed = ui('speed');
+  const barTimeScale = ui('barTimeScale');
+  if (speed) { speed.value = String(index); paintRangeFill(speed); }
+  if (barTimeScale) { barTimeScale.value = String(index); paintRangeFill(barTimeScale); }
+  if (ui('speedVal')) ui('speedVal').textContent = CONFIG.timeScale + ' d/s';
+  if (ui('barTimeScaleValue')) ui('barTimeScaleValue').textContent = CONFIG.timeScale + ' d/s';
+  refreshBottomInfoBar(true);
+}
+
+function stepTimeScale(direction) {
+  const index = TIME_SCALE_PRESETS.indexOf(CONFIG.timeScale);
+  setTimeScale(TIME_SCALE_PRESETS[Math.max(0, Math.min(TIME_SCALE_PRESETS.length - 1, index + direction))]);
+}
+
+function updateTimelinePreview(targetDays) {
+  const date = simDateFromDays(targetDays);
+  ui('barUtcDate').textContent = formatUtcDate(date);
+  ui('barUtcTime').textContent = formatUtcTime(date);
+  ui('barElapsed').textContent = formatElapsedDays(clampSimDays(targetDays));
+  ui('timelineScrubber').setAttribute(
+    'aria-valuetext',
+    formatUtcDate(date) + ' ' + formatUtcTime(date),
+  );
+}
+
+let bottomBarRefreshAt = -Infinity;
+function refreshBottomInfoBar(force = false) {
+  const bar = ui('bottomBar');
+  if (!bar) return;
+  const now = performance.now();
+  if (!force && now - bottomBarRefreshAt < 250) return;
+  bottomBarRefreshAt = now;
+  const date = simDateFromDays(simDays);
+  const summary = buildObjectSummary(selectedRecord, GALAXIES[currentGalaxy]);
+  ui('barUtcDate').textContent = formatUtcDate(date);
+  ui('barUtcTime').textContent = formatUtcTime(date);
+  ui('barDay').textContent = String(date.getUTCDate()).padStart(2, '0');
+  ui('barMonth').textContent = date.toLocaleString('en', { month: 'long', timeZone: 'UTC' });
+  ui('barYear').textContent = String(date.getUTCFullYear());
+  ui('barElapsed').textContent = formatElapsedDays(simDays);
+  ui('barUniverseAge').textContent = (13.8 + simDays / (365.25e9)).toFixed(9) + ' billion years';
+  ui('barEpoch').textContent = 'J' + julianEpoch().toFixed(3);
+  ui('barSelectedName').textContent = summary.name;
+  ui('barSelectedType').textContent = summary.type;
+  ui('barSelectedSource').textContent = summary.source;
+  ui('barSelectedStatus').textContent = summary.status;
+  const labels = {
+    cameraDistance: 'Camera', parentDistance: 'Parent', velocity: 'Velocity',
+    orbitalSpeed: 'Orbital speed', rotationSpeed: 'Rotation', temperature: 'Temperature',
+    mass: 'Mass', radius: 'Radius', gravity: 'Gravity', orbitalPeriod: 'Period',
+    coordinates: 'Coordinates',
+  };
+  ui('barSelectedMetric').innerHTML = SUMMARY_METRIC_KEYS.map(key => {
+    const metric = summary.metrics[key];
+    const value = Math.abs(metric.value) >= 1e6
+      ? metric.value.toExponential(3)
+      : Number(metric.value.toFixed(3)).toLocaleString();
+    const coordinates = key === 'coordinates'
+      ? ' [' + metric.x.toFixed(2) + ', ' + metric.y.toFixed(2) + ', ' + metric.z.toFixed(2) + ']'
+      : '';
+    return '<span><small>' + labels[key] + '</small><b>' + value + coordinates + ' ' + metric.unit
+      + '</b>' + (metric.qualifier ? '<em>' + metric.qualifier + '</em>' : '') + '</span>';
+  }).join('');
+  const scrubber = ui('timelineScrubber');
+  scrubber.value = String(simDays);
+  paintRangeFill(scrubber);
+  scrubber.setAttribute('aria-valuetext', formatUtcDate(date) + ' ' + formatUtcTime(date));
+  ui('timelinePrev').disabled = simDays <= -SIM_DAY_LIMIT;
+  ui('timelineNext').disabled = simDays >= SIM_DAY_LIMIT;
+  setTimeScaleDisplayOnly();
+}
+
+function setTimeScaleDisplayOnly() {
+  const index = Math.max(0, TIME_SCALE_PRESETS.indexOf(CONFIG.timeScale));
+  ui('barTimeScale').value = String(index);
+  paintRangeFill(ui('barTimeScale'));
+  ui('barTimeScaleValue').textContent = CONFIG.timeScale + ' d/s';
 }
 
 function refreshPlanetGrid() {
@@ -3609,7 +4270,7 @@ function setupUI() {
     const el = ui(id), val = ui(valId);
     const paint = () => {
       val.textContent = fmt(obj[key]);
-      el.style.setProperty('--fill', ((el.value - el.min) / (el.max - el.min) * 100) + '%');
+      paintRangeFill(el);
     };
     el.value = obj[key];
     el.addEventListener('input', () => { obj[key] = parseFloat(el.value); paint(); if (onChange) onChange(); });
@@ -3631,8 +4292,14 @@ function setupUI() {
   });
 
   // Sim
-  bindSwitch('playing', CONFIG, 'playing');
-  bindSlider('speed', 'speedVal', CONFIG, 'timeScale', v => v.toFixed(0) + ' d/s');
+  ui('playing').checked = CONFIG.playing;
+  ui('playing').addEventListener('change', () => {
+    setPlayback(ui('playing').checked ? (playbackDirection < 0 ? 'reverse' : 'forward') : 'paused');
+  });
+  ui('speed').addEventListener('input', () => {
+    setTimeScale(TIME_SCALE_PRESETS[Number(ui('speed').value)]);
+  });
+  setTimeScale(CONFIG.timeScale);
   bindSlider('gravity', 'gravityVal', CONFIG, 'gravityMult', v => v.toFixed(1) + '×');
   bindSlider('size', 'sizeVal', CONFIG, 'planetScale', v => v.toFixed(2) + '×', applyPlanetScale);
   bindSlider('dist', 'distVal', CONFIG, 'distanceScale', v => v.toFixed(0), applyDistanceScale);
@@ -3660,21 +4327,29 @@ function setupUI() {
 
   // Spawn
   ui('cometColor').addEventListener('change', () => { uiParams.cometColor = ui('cometColor').value; });
-  ui('spawnComet').addEventListener('click', () => spawnComet(uiParams.cometA, uiParams.cometE));
-  ui('spawnNEA').addEventListener('click', () => spawnNEA());
+  const recordSpawnedBody = (body, extra) => recordInteraction('spawn', Object.assign({
+    pos: body.mesh.position.toArray(), vel: body.vel.toArray(),
+    size: body.radius, mass: body.mass,
+  }, extra), body);
+  ui('spawnComet').addEventListener('click', () => {
+    const body = spawnComet(uiParams.cometA, uiParams.cometE);
+    recordSpawnedBody(body, { comet: true, a: uiParams.cometA, e: uiParams.cometE, color: uiParams.cometColor });
+  });
+  ui('spawnNEA').addEventListener('click', () => recordSpawnedBody(spawnNEA(), { nea: true }));
   bindSlider('cometA', 'cometAVal', uiParams, 'cometA', v => v.toFixed(0) + ' u', () => { if (lastComet) retuneComet(lastComet, uiParams.cometA, uiParams.cometE); });
   bindSlider('cometE', 'cometEVal', uiParams, 'cometE', v => v.toFixed(2), () => { if (lastComet) retuneComet(lastComet, uiParams.cometA, uiParams.cometE); });
   bindSlider('astSize', 'astSizeVal', uiParams, 'astSize', v => v.toFixed(1) + ' u');
   bindSlider('astMass', 'astMassVal', uiParams, 'astMass', v => v.toFixed(1));
   bindSlider('astVel', 'astVelVal', uiParams, 'astVel', v => v.toFixed(2) + ' u/d');
-  ui('spawnAsteroid').addEventListener('click', () => spawnAsteroid(true));
-  ui('spawnAstBelt').addEventListener('click', () => spawnAsteroid(false));
+  ui('spawnAsteroid').addEventListener('click', () => recordSpawnedBody(spawnAsteroid(true), {}));
+  ui('spawnAstBelt').addEventListener('click', () => recordSpawnedBody(spawnAsteroid(false), {}));
   bindSlider('bhMass', 'bhMassVal', uiParams, 'bhMass', v => v.toFixed(0));
   ui('spawnBH').addEventListener('click', () => {
     const dir = camera.getWorldDirection(new THREE.Vector3());
     const pos = camera.position.clone().addScaledVector(dir, 220);
     pos.y *= 0.3;
-    spawnBlackHole(uiParams.bhMass, pos);
+    const bh = spawnBlackHole(uiParams.bhMass, pos);
+    recordInteraction('blackhole', { massSuns: uiParams.bhMass, pos: pos.toArray() }, bh);
   });
   ui('clearSpawned').addEventListener('click', clearSpawned);
 
@@ -3682,7 +4357,13 @@ function setupUI() {
   ui('impactKind').addEventListener('change', () => {
     ui('impCometColor').hidden = ui('impactKind').value !== 'comet';
   });
-  ui('launchBtn').addEventListener('click', launchProjectile);
+  ui('launchBtn').addEventListener('click', () => {
+    const body = launchProjectile();
+    if (body) recordSpawnedBody(body, {
+      comet: body.kind === 'comet', a: body.a, e: body.e, color: ui('impCometColor').value,
+      projectile: true, targetIndex: +ui('impactTarget').value,
+    });
+  });
   ui('meteorBtn').addEventListener('click', () => spawnMeteorShower(planets[+ui('impactTarget').value]));
   bindSlider('impSpeed', 'impSpeedVal', uiParams, 'impSpeed', v => v.toFixed(1) + ' u/d');
   bindSlider('impAngle', 'impAngleVal', uiParams, 'impAngle', v => v.toFixed(0) + '°');
@@ -3697,6 +4378,7 @@ function setupUI() {
     const target = cameraState.targets[Number(ui('camTarget').value)];
     if (!isCameraTargetLive(target)) return;
     cameraState.target = target;
+    selectRecord(target);
     if (cameraState.mode === 'orbit') flyTo(target);
     else if (cameraState.mode !== 'free') setCameraMode(cameraState.mode);
   });
@@ -3747,9 +4429,89 @@ function setupUI() {
     ui('collapseBtn').innerHTML = collapsed ? '+' : '&#8722;';
   });
   ui('ipClose').addEventListener('click', closeInfoPanel);
+
+  ui('barPlay').addEventListener('click', () => setPlayback('forward'));
+  ui('barPause').addEventListener('click', () => setPlayback('paused'));
+  ui('barReverse').addEventListener('click', () => setPlayback('reverse'));
+  ui('barTimeScale').addEventListener('input', () => {
+    setTimeScale(TIME_SCALE_PRESETS[Number(ui('barTimeScale').value)]);
+  });
+  ui('barSpeedDown').addEventListener('click', () => stepTimeScale(-1));
+  ui('barSpeedUp').addEventListener('click', () => stepTimeScale(1));
+  const timelineStops = [-SIM_DAY_LIMIT, 0, SIM_DAY_LIMIT];
+  ui('timelinePrev').disabled = simDays <= -SIM_DAY_LIMIT;
+  ui('timelineNext').disabled = simDays >= SIM_DAY_LIMIT;
+  ui('timelinePrev').addEventListener('click', () => {
+    const target = [...timelineStops].reverse().find(stop => stop < simDays - .00001);
+    seekSimulationTime(simulationTimeMs(target ?? -SIM_DAY_LIMIT), 'previous-stop');
+  });
+  ui('timelineNext').addEventListener('click', () => {
+    const target = timelineStops.find(stop => stop > simDays + .00001);
+    seekSimulationTime(simulationTimeMs(target ?? SIM_DAY_LIMIT), 'next-stop');
+  });
+  ui('timelineReset').addEventListener('click', () => {
+    seekSimulationTime(SESSION_START_MS, 'session-start');
+  });
+  ui('timelinePresent').addEventListener('click', () => {
+    seekSimulationTime(Date.now(), 'present');
+  });
+  ui('timelineScrubber').addEventListener('input', () => {
+    const previewDays = Number(ui('timelineScrubber').value);
+    setPlayback('paused');
+    ui('timelineScrubber').value = String(previewDays);
+    paintRangeFill(ui('timelineScrubber'));
+    updateTimelinePreview(previewDays);
+  });
+  ui('timelineScrubber').addEventListener('change', () => {
+    seekSimulationTime(simulationTimeMs(Number(ui('timelineScrubber').value)), 'scrubber');
+  });
+  ui('timelineScrubber').setAttribute(
+    'aria-valuetext',
+    formatUtcDate(simDateFromDays(simDays)) + ' ' + formatUtcTime(simDateFromDays(simDays)),
+  );
+
+  const mobileTimeline = window.matchMedia('(max-width: 720px)');
+  const syncTimelineDetails = () => {
+    const panel = ui('timelineDetailsPanel');
+    const expanded = mobileTimeline.matches && ui('timelineDetails').getAttribute('aria-expanded') === 'true';
+    panel.hidden = mobileTimeline.matches && !expanded;
+    panel.setAttribute('aria-hidden', String(mobileTimeline.matches && !expanded));
+  };
+  ui('timelineDetails').addEventListener('click', () => {
+    const expanded = ui('timelineDetails').getAttribute('aria-expanded') !== 'true';
+    ui('timelineDetails').setAttribute('aria-expanded', String(expanded));
+    ui('timelineDetailsPanel').hidden = !expanded;
+    ui('timelineDetailsPanel').setAttribute('aria-hidden', String(!expanded));
+  });
+  ui('barCollapse').addEventListener('click', () => {
+    const collapsed = ui('bottomBar').classList.toggle('collapsed');
+    ui('barCollapse').setAttribute('aria-expanded', String(!collapsed));
+    const label = collapsed ? 'Show timeline panel' : 'Hide timeline panel';
+    ui('barCollapse').setAttribute('aria-label', label);
+    ui('barCollapse').title = label;
+    ui('barCollapse').innerHTML = collapsed ? '&#9652;' : '&#9662;';
+  });
+  mobileTimeline.addEventListener('change', syncTimelineDetails);
+  syncTimelineDetails();
+
+  const updateBottomOffset = () => {
+    const height = Math.ceil(ui('bottomBar').getBoundingClientRect().height) + 24;
+    document.documentElement.style.setProperty(
+      '--bottom-bar-offset',
+      'calc(' + height + 'px + env(safe-area-inset-bottom))',
+    );
+  };
+  new ResizeObserver(updateBottomOffset).observe(ui('bottomBar'));
+  updateBottomOffset();
+  setPlayback('forward');
+  refreshBottomInfoBar(true);
 }
 
 function clearSpawned() {
+  // a deliberate wipe also forgets the events, or the timeline would resurrect them
+  for (let i = interactionLog.length - 1; i >= 0; i--) {
+    if (interactionLog[i].galaxy === currentGalaxy) interactionLog.splice(i, 1);
+  }
   for (const b of dynBodies) removeBody(b);
   dynBodies = [];
   // remove spawned holes (galaxy-resident hole in M87 stays)
@@ -3761,6 +4523,7 @@ function clearSpawned() {
       const rec = [...byMesh.entries()].find(([, r]) => r.bh === bh);
       if (rec) {
         const [, bodyRec] = rec;
+        if (selectedRecord === bodyRec) selectRecord(null);
         if (infoTarget === bodyRec) closeInfoPanel();
         if (focused === bodyRec || (flight.active && flight.focus === bodyRec)) flyTo(null);
         byMesh.delete(rec[0]);
@@ -3805,8 +4568,10 @@ function setupTitleScreen() {
     camera.updateProjectionMatrix();
     controls.target.copy(titleAim);
     flyTo(null, CONFIG.introDur);
-    setTimeout(() => document.getElementById('ui').classList.add('visible'),
-      CONFIG.introDur * 1000 - 500);
+    setTimeout(() => {
+      document.getElementById('ui').classList.add('visible');
+      document.getElementById('bottomBar').classList.add('visible');
+    }, CONFIG.introDur * 1000 - 500);
   }, { once: true });
 }
 
@@ -4006,8 +4771,12 @@ function animate() {
 // One simulation tick, separated from rendering so it can also be driven
 // headlessly (tests, background catch-up).
 function update(dt) {
-  const dDays = CONFIG.playing ? dt * CONFIG.timeScale : 0;
+  const dDays = CONFIG.playing ? dt * CONFIG.timeScale * playbackDirection : 0;
+  const prevSimDays = simDays;
   simDays += dDays;
+  simDays = clampSimDays(simDays);
+  if (dDays && (simDays <= -SIM_DAY_LIMIT || simDays >= SIM_DAY_LIMIT)) setPlayback('paused');
+  if (dDays) syncInteractionEvents(prevSimDays, simDays);
   const t = clock.elapsedTime;
 
   // rail planets
@@ -4017,22 +4786,28 @@ function update(dt) {
     if (rec.mode === 'rail') {
       orbitPos(def, rec.theta0 + Math.PI * 2 * simDays / def.periodDays, rec.anchor.position);
     }
-    rec.mesh.rotation.y += Math.PI * 2 * dDays * 24 / (def.rotHours || 24);
-    if (rec.cloudMesh) rec.cloudMesh.rotation.y += Math.PI * 2 * dDays * 24 / (def.rotHours || 24) * 1.25;
-    for (const m of rec.moons) if (m.alive) m.pivot.rotation.y += Math.PI * 2 * dDays / m.def.periodDays;
+    rec.mesh.rotation.y = Math.PI * 2 * simDays * 24 / (def.rotHours || 24);
+    if (rec.cloudMesh) rec.cloudMesh.rotation.y = rec.mesh.rotation.y * 1.25;
+    for (const m of rec.moons) if (m.alive) {
+      m.pivot.rotation.y = m.phase0 + Math.PI * 2 * simDays / m.def.periodDays;
+    }
     rec.lod.update(camera);
   }
 
-  if (sunMesh) sunMesh.rotation.y += Math.PI * 2 * dDays / 25.4;
+  if (dDays < 0) applyBaselinePose(simDays);
+  if (sunMesh) {
+    const profile = STAR_SUMMARY_PROFILES[currentGalaxy === 0 ? 'MilkyWay' : 'Andromeda'];
+    sunMesh.rotation.y = Math.PI * 2 * simDays / profile.rotationDays;
+  }
   if (belt) belt.rotation.y = -Math.PI * 2 * simDays / BELT_PERIOD_DAYS;
   for (const sprite of coronaSprites) {
     sprite.scale.setScalar(sprite.userData.baseScale * (1 + 0.04 * Math.sin(t * 0.7 + sprite.userData.baseScale)));
   }
   for (const bh of blackHoles) {
     bh.disk.material.uniforms.uTime.value = t;
-    bh.disk.rotation.z += dt * 0.05;
+    bh.disk.rotation.z = simDays * .05;
   }
-  if (dustField) dustField.rotation.y += dt * 0.004;
+  if (dustField && dDays >= 0) dustField.rotation.y += dt * 0.004;
 
   if (dDays > 0) updateDynamics(dDays, dt);
   updateTrojans();
@@ -4049,12 +4824,14 @@ function update(dt) {
       if (CONFIG.collisions) checkMajorCollisions();
     }
   }
-  shootingStarTimer -= dt;
-  if (shootingStarTimer <= 0) {
-    shootingStarTimer = 4 + Math.random() * 5;
-    spawnShootingStar();
+  if (dDays > 0) {
+    shootingStarTimer -= dt;
+    if (shootingStarTimer <= 0) {
+      shootingStarTimer = 4 + Math.random() * 5;
+      spawnShootingStar();
+    }
   }
-  updateEffects(dt, dDays);
+  if (dDays >= 0) updateEffects(dt, dDays);
   updateLensing();
 
   for (const layer of starLayers) {
@@ -4106,6 +4883,7 @@ function update(dt) {
   updateFlight(dt);
   updateCameraMode(dt);
   refreshInfoPanel(dt);
+  refreshBottomInfoBar();
   // during the title the drift owns the camera; OrbitControls would force it
   // to look at its target and re-lock the view
   if (!titleMode && (cameraState.mode === 'orbit' || cameraState.mode === 'follow')) controls.update();
@@ -4116,7 +4894,13 @@ function runSelfCheck() {
   const requiredDomIds = [
     'startBtn', 'ui', 'planetGrid', 'infoPanel', 'ipBody', 'warnings',
     'warningAnnouncer', 'toasts', 'spawnComet', 'spawnNEA', 'launchBtn',
-    'meteorBtn', 'camGrid', 'camTarget', 'teleZoom',
+    'meteorBtn', 'camGrid', 'camTarget', 'teleZoom', 'bottomBar',
+    'barUtcDate', 'barUtcTime', 'barDay', 'barMonth', 'barYear', 'barElapsed',
+    'barUniverseAge', 'barEpoch', 'barTimeScale', 'barSelectedName',
+    'barSelectedType', 'barSelectedSource', 'barSelectedStatus', 'barSelectedMetric',
+    'barPlay', 'barPause', 'barReverse', 'timelinePrev', 'timelineNext',
+    'barSpeedDown', 'barSpeedUp', 'timelineReset', 'timelinePresent',
+    'timelineScrubber', 'timelineDetails', 'timelineDetailsPanel',
   ];
   checks.dom = requiredDomIds.every(id => !!document.getElementById(id));
 
@@ -4171,11 +4955,29 @@ function runSelfCheck() {
     && expectedTargets.every(record => registeredSet.has(record))
     && blackHoleTargetsValid;
 
+  checks.timeline = clampSimDays(-SIM_DAY_LIMIT - 1) === -SIM_DAY_LIMIT
+    && clampSimDays(SIM_DAY_LIMIT + 1) === SIM_DAY_LIMIT
+    && Math.abs(simDaysFromDate(simDateFromDays(simDays)) - simDays) < 2 / 86400000
+    && TIME_SCALE_PRESETS.includes(CONFIG.timeScale);
+  checks.bottomBar = requiredDomIds.slice(16).every(id => !!document.getElementById(id))
+    && ui('timelineDetails').getAttribute('aria-controls') === 'timelineDetailsPanel'
+    && !!getComputedStyle(document.documentElement).getPropertyValue('--bottom-bar-offset').trim();
+  const stableSelection = selectionKeyFor(selectedRecord);
+  checks.selection = selectedRecord === null || stableSelection !== null || dynBodies.includes(selectedRecord);
+  const summary = buildObjectSummary(selectedRecord, GALAXIES[currentGalaxy]);
+  checks.summaryMetrics = SUMMARY_METRIC_KEYS.every(key => {
+    const metric = summary.metrics[key];
+    return metric && Number.isFinite(metric.value) && typeof metric.unit === 'string';
+  });
+
   checks.integrations = [
     toast, toastOnce, openInfoPanel, closeInfoPanel,
     refreshCameraTargets, setCameraMode, updateCameraMode,
     closestApproach, updateImpactWarnings,
     checkEclipses, updateTrojans, checkMajorCollisions,
+    setPlayback, setTimeScale, seekSimulationTime, rebuildSimulationAt,
+    applyBaselinePose, selectRecord, restoreSelection,
+    buildObjectSummary, refreshBottomInfoBar,
   ].every(fn => typeof fn === 'function');
 
   return { ok: Object.values(checks).every(Boolean), checks };
@@ -4204,6 +5006,7 @@ window.solar = {
   get sunRec() { return sunRec; },
   get starLayers() { return starLayers; },
   step: (dt) => update(dt), // headless simulation tick
+  render: () => composer.render(), // headless frame render (verification)
   get lensingPass() { return lensingPass; },
   get bloomPass() { return bloomPass; },
 };
