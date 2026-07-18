@@ -118,8 +118,8 @@ test('exposes the scientific formatter used by planet information panels', () =>
   assert.equal(data.sci(5.972e24), '5.97×10²⁴');
 });
 
-test('declares an inline favicon so local browser verification stays free of 404 errors', () => {
-  assert.match(html, /<link\s+rel=["']icon["']\s+href=["']data:,["']\s*\/?>/i);
+test('uses CosmicX.png as the application favicon', () => {
+  assert.match(html, /<link\s+rel=["']icon["'][^>]*href=["']\.\/CosmicX\.png["'][^>]*>/i);
 });
 
 test('gives every simulation toggle an accessible name', () => {

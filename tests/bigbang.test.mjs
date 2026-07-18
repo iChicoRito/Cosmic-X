@@ -62,8 +62,8 @@ test('keeps the modular Big Bang runtime syntactically valid', async () => {
   assert.equal(typeof module.createBigBangRuntime, 'function');
 });
 
-test('declares an inline favicon so browser verification stays free of 404 errors', () => {
-  assert.match(html, /<link\s+rel=["']icon["']\s+href=["']data:,["']\s*\/?>/i);
+test('uses CosmicX.png as the application favicon', () => {
+  assert.match(html, /<link\s+rel=["']icon["'][^>]*href=["']\.\/CosmicX\.png["'][^>]*>/i);
 });
 
 test('covers all eleven cosmic epochs in chronological order', () => {
