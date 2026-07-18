@@ -164,3 +164,11 @@ test('adds visible title-scene activity with a reduced-motion fallback', () => {
     /@media\s*\(prefers-reduced-motion:\s*reduce\)[\s\S]*?#bbTitle::before,\s*#bbTitle::after\s*\{[^}]*animation:\s*none/,
   );
 });
+
+test('matches the sandbox glass treatment on the Modes link', () => {
+  const rule = /#backLink\s*\{[^}]*\}/s.exec(html)?.[0] || '';
+  assert.match(rule, /background:\s*var\(--glass-bg\)/);
+  assert.match(rule, /border:\s*1px solid var\(--glass-border\)/);
+  assert.match(rule, /backdrop-filter/);
+  assert.match(rule, /text-transform:\s*uppercase/);
+});

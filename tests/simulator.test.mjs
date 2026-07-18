@@ -690,3 +690,45 @@ test('adds one non-overlapping Sandbox menu link and positions the existing Hide
   const titleScreen = section('function setupTitleScreen() {', 'const clock = new THREE.Clock();');
   assert.match(titleScreen, /simBackLink['"]\)\.classList\.add\(\s*['"]visible['"]\s*\)/);
 });
+
+test('enters fullscreen straight from the Got it acknowledgement', () => {
+  const setup = functionSource('setupFullscreenNotice');
+  assert.match(setup, /requestFullscreen\(\)/);
+  assert.ok(setup.indexOf('notice.close()') < setup.indexOf('requestFullscreen()'),
+    'The dialog must close before the fullscreen request so the gesture is not consumed by a stuck modal');
+});
+
+test('returns to the mode menu in-app without a reload', () => {
+  const titleScreen = section('function setupTitleScreen() {', 'const clock = new THREE.Clock();');
+  assert.match(titleScreen, /simBackLink['"]\)[\s\S]*?addEventListener\(\s*['"]click['"]/);
+  assert.match(titleScreen, /preventDefault\(\)/);
+  const back = functionSource('returnToMenu');
+  assert.match(back, /titleMode = true/);
+  assert.match(back, /classList\.add\(\s*['"]modes['"]/);
+  assert.match(back, /classList\.remove\(\s*['"]hidden['"]/);
+  assert.match(back, /setCameraMode\(\s*['"]orbit['"]/);
+});
+
+test('cycles the title backdrop across every galaxy environment', () => {
+  const cycle = functionSource('cycleTitleGalaxy');
+  assert.match(cycle, /buildGalaxy\(\s*\(\s*currentGalaxy\s*\+\s*1\s*\)\s*%\s*GALAXIES\.length/);
+  assert.match(cycle, /titleMode/);
+  const titleScreen = section('function setupTitleScreen() {', 'const clock = new THREE.Clock();');
+  assert.match(titleScreen, /setInterval\(\s*cycleTitleGalaxy/);
+});
+
+test('flies the camera home when the user exits the info panel', () => {
+  const exit = functionSource('exitInfoPanel');
+  assert.match(exit, /closeInfoPanel\(\)/);
+  assert.match(exit, /flyTo\(null\)/);
+  assert.match(exit, /titleMode/);   // menu return must never trigger the homing flight
+  assert.match(html, /ui\(['"]ipClose['"]\)\.addEventListener\(\s*['"]click['"],\s*exitInfoPanel\s*\)/);
+  assert.match(html, /if \(infoTarget\) exitInfoPanel\(\)/);
+});
+
+test('previews formed galaxies on Big Bang hover, not white foam', () => {
+  const preview = functionSource('buildTitlePreview');
+  assert.match(preview, /aCol/);
+  assert.match(preview, /255,\s*205,\s*150/);   // bigbang.html warm-glow palette
+  assert.doesNotMatch(preview, /vec3\(0\.75,\s*0\.85,\s*1\.0\)/);
+});

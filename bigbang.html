@@ -191,10 +191,15 @@
   #beginBtn:hover, #beginBtn:focus-visible {
     background: #fff; color: #101216; border-color: #fff;
   }
+  /* same glass treatment as the sandbox's Back to Menu link */
   #backLink {
     position: fixed; top: 16px; left: 16px; z-index: 22;
-    color: var(--muted); font: 600 12px var(--font); letter-spacing: .08em;
-    text-decoration: none; padding: 8px 14px;
+    padding: 7px 12px; color: var(--muted); text-decoration: none;
+    background: var(--glass-bg); border: 1px solid var(--glass-border);
+    -webkit-backdrop-filter: blur(14px) saturate(140%);
+    backdrop-filter: blur(14px) saturate(140%);
+    font: 600 11px var(--font); letter-spacing: .08em; text-transform: uppercase;
+    transition: color .2s;
   }
   #backLink:hover { color: var(--fg); }
   #backLink:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
