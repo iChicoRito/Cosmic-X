@@ -2,7 +2,22 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 
-const html = readFileSync(new URL('../bigbang.html', import.meta.url), 'utf8');
+const read = path => readFileSync(new URL(path, import.meta.url), 'utf8').replace(/\r\n/g, '\n');
+const shell = read('../index.html');
+const styles = read('../src/pages/big-bang/big-bang.css');
+const template = read('../src/pages/big-bang/template.js');
+const runtime = read('../src/pages/big-bang/runtime.js');
+const modules = [
+  '../src/pages/big-bang/config.js',
+  '../src/pages/big-bang/timeline.js',
+  '../src/pages/big-bang/camera.js',
+  '../src/pages/big-bang/systems.js',
+  '../src/pages/big-bang/ui.js',
+  '../src/shared/postprocessing-shaders.js',
+  '../src/shared/procedural-canvas.js',
+  '../src/shared/range.js',
+].map(read).join('\n');
+const html = `${shell}\n<style>\n${styles}\n</style>\n${template}\n${runtime}\n${modules}`;
 
 function functionSource(name) {
   const match = new RegExp(`\\bfunction\\s+${name}\\s*\\(`).exec(html);
@@ -42,11 +57,9 @@ function assertAttributes(tag, attributes) {
   }
 }
 
-test('keeps the inline Big Bang module syntactically valid', () => {
-  const moduleMatch = html.match(/<script type="module">([\s\S]*?)<\/script>/);
-  assert.ok(moduleMatch, 'Missing inline module script');
-  const source = moduleMatch[1].replace(/^\s*import .*;$/gm, '');
-  assert.doesNotThrow(() => new Function(source));
+test('keeps the modular Big Bang runtime syntactically valid', async () => {
+  const module = await import('../src/pages/big-bang/runtime.js');
+  assert.equal(typeof module.createBigBangRuntime, 'function');
 });
 
 test('declares an inline favicon so browser verification stays free of 404 errors', () => {
@@ -133,7 +146,7 @@ test('reveals a camera-tracked ending only after forward completion', () => {
 test('offers accessible replay and mode-selection actions beneath the ending quote', () => {
   assertAttributes(startTagById('bbEnding'), { inert: null });
   assertAttributes(startTagById('bbReplayBtn'), { type: /button/ });
-  assertAttributes(startTagById('bbEndingBack'), { href: /index\.html#modes/ });
+  assertAttributes(startTagById('bbEndingBack'), { href: /#\/modes/ });
   assert.match(html, /Play Again/);
   assert.match(html, /Back to Menu/);
   assert.ok(
@@ -158,7 +171,7 @@ test('supports a chrome-free live title preview and routes Modes to mode selecti
   assert.match(html, /document\.documentElement\.classList\.add\(\s*['"]preview['"]\s*\)/);
   const styles = html.slice(html.indexOf('<style>'), html.indexOf('</style>'));
   assert.match(styles, /\.preview\s+:is\([^)]*#bbTitle[^)]*#backLink[^)]*\)\s*\{[^}]*display:\s*none/s);
-  assertAttributes(startTagById('backLink'), { href: /index\.html#modes/ });
+  assertAttributes(startTagById('backLink'), { href: /#\/modes/ });
 });
 
 test('drifts through the formed galaxies behind the title, then rewinds to t = 0 on Begin', () => {

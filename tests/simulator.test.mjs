@@ -2,7 +2,23 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 
-const html = readFileSync(new URL('../index.html', import.meta.url), 'utf8');
+const read = path => readFileSync(new URL(path, import.meta.url), 'utf8').replace(/\r\n/g, '\n');
+const shell = read('../index.html');
+const styles = read('../src/pages/solar/solar.css');
+const template = read('../src/pages/solar/template.js');
+const runtime = read('../src/pages/solar/runtime.js');
+const modules = [
+  '../src/pages/solar/config.js',
+  '../src/pages/solar/data.js',
+  '../src/pages/solar/dynamics.js',
+  '../src/pages/solar/camera.js',
+  '../src/pages/solar/settings.js',
+  '../src/pages/solar/timeline.js',
+  '../src/shared/postprocessing-shaders.js',
+  '../src/shared/procedural-canvas.js',
+  '../src/shared/range.js',
+].map(read).join('\n');
+const html = `${shell}\n<style>\n${styles}\n</style>\n${template}\n${runtime}\n${modules}`;
 
 function section(start, end) {
   const from = html.indexOf(start);
@@ -86,11 +102,9 @@ function assertContracts(source, contracts) {
   assert.deepEqual(missing, [], `Missing contract: ${missing.join(', ')}`);
 }
 
-test('keeps the inline simulator module syntactically valid', () => {
-  const moduleMatch = html.match(/<script type="module">([\s\S]*?)<\/script>/);
-  assert.ok(moduleMatch, 'Missing inline module script');
-  const source = moduleMatch[1].replace(/^\s*import .*;$/gm, '');
-  assert.doesNotThrow(() => new Function(source));
+test('keeps the modular simulator runtime syntactically valid', async () => {
+  const module = await import('../src/pages/solar/runtime.js');
+  assert.equal(typeof module.createSolarRuntime, 'function');
 });
 
 test('declares an inline favicon so local browser verification stays free of 404 errors', () => {
@@ -191,14 +205,14 @@ test('keeps exactly the six supported camera mode controls', () => {
 
 test('wires camera controls and implements every active mode', () => {
   const setupUI = section('function setupUI() {', 'function clearSpawned() {');
-  const camera = section('const CAMERA_MODES =', '/* ================================================================\n   UI');
+  const camera = functionSource('createCameraMetadata');
   assertContracts(setupUI, {
     modeButtons: /\.cam-btn[\s\S]*addEventListener\(\s*['"]click['"][\s\S]*setCameraMode\(/,
     targetSelect: /ui\(\s*['"]camTarget['"]\s*\)\s*\.addEventListener\(\s*['"]change['"]/,
     telescopeZoom: /(?:bindSlider\(\s*['"]teleZoom['"]|ui\(\s*['"]teleZoom['"]\s*\)\s*\.addEventListener\(\s*['"]input['"])/,
   });
-  assert.match(html, /addEventListener\(\s*['"]keydown['"]/);
-  assert.match(html, /addEventListener\(\s*['"]keyup['"]/);
+  assert.match(html, /(?:addEventListener\(\s*['"]keydown['"]|scope\.listen\(\s*window\s*,\s*['"]keydown['"])/);
+  assert.match(html, /(?:addEventListener\(\s*['"]keyup['"]|scope\.listen\(\s*window\s*,\s*['"]keyup['"])/);
   assert.match(html, /['"]Escape['"]/);
   for (const mode of ['free', 'follow', 'cinematic', 'drone', 'telescope']) {
     assert.match(
@@ -228,7 +242,7 @@ test('requests fullscreen from Start only when the saved display mode prefers it
 });
 
 test('computes closing trajectories and renders capped impact warnings', () => {
-  const warningMath = section('function closestApproach(', 'function updateImpactWarnings(');
+  const warningMath = functionSource('closestApproach');
   const closestApproach = Function(`${warningMath}; return closestApproach;`)();
   const state = (x, y, vx, vy, radius = 1) => ({
     position: { x, y, z: 0 },
@@ -295,7 +309,7 @@ test('self-check validates the runtime contract and is exported', () => {
     integrations: /checks\.integrations/,
     compactResult: /return\s*\{\s*ok\s*:[\s\S]*checks\s*\}/,
   });
-  const debugHandle = section('window.solar = {', '</script>');
+  const debugHandle = section('window.solar = {', 'const debugHandle = window.solar;');
   assert.match(debugHandle, /\bselfCheck\s*:\s*runSelfCheck\b/);
 });
 
@@ -588,8 +602,8 @@ test('offers the Big Bang mode from the title screen', () => {
   assert.match(title, /Before the Stars/);
   const titleScreen = section('function setupTitleScreen() {', 'const clock = new THREE.Clock();');
   assertContracts(titleScreen, {
-    navTarget: /bigbang\.html/,
-    fadeBeforeNav: /fade['"]\)[\s\S]*?classList\.add\(\s*['"]on['"]\s*\)[\s\S]*?bigbang\.html/,
+    navTarget: /navigate\(\s*['"]\/big-bang['"]\s*\)/,
+    fadeBeforeNav: /fade['"]\)[\s\S]*?classList\.add\(\s*['"]on['"]\s*\)[\s\S]*?navigate\(\s*['"]\/big-bang['"]/,
   });
 });
 
@@ -699,8 +713,8 @@ test('returns from mode selection to a reusable title screen', () => {
   const setup = functionSource('setupTitleScreen');
   assert.match(setup, /titleBackBtn/);
   assert.match(setup, /classList\.remove\(\s*['"]modes['"]\s*\)/);
-  assert.match(setup, /history\.replaceState\(/);
-  assert.match(setup, /location\.hash\s*===\s*['"]#modes['"]/);
+  assert.match(setup, /navigate\(\s*['"]\/['"]\s*\)/);
+  assert.match(setup, /initialView\s*===\s*['"]modes['"]/);
   assert.doesNotMatch(setup, /enterBtn[\s\S]{0,180}once:\s*true/);
 
   const styles = section('<style>', '</style>');
@@ -781,14 +795,14 @@ test('sanitizes and loads persisted settings before scene creation', () => {
 
   const load = functionSource('loadSettings');
   const save = functionSource('saveSettings');
-  assert.match(load, /localStorage\.getItem\(\s*SETTINGS_KEY\s*\)/);
+  assert.match(load, /storage\.getItem\(\s*SETTINGS_KEY\s*\)/);
   assert.match(load, /JSON\.parse/);
   assert.match(load, /sanitizeSettings\(/);
   assert.match(load, /catch/);
-  assert.match(save, /localStorage\.setItem\(\s*SETTINGS_KEY/);
+  assert.match(save, /storage\.setItem\(\s*SETTINGS_KEY/);
   assert.match(save, /bloomStrength:\s*CONFIG\.bloom\.strength/);
   assert.match(save, /catch/);
-  const boot = section('/* ================================================================\n   BOOT', '</script>');
+  const boot = section('/* ================================================================\n   BOOT', 'const debugHandle = window.solar;');
   assert.ok(boot.indexOf('loadSettings();') < boot.indexOf('initScene();'));
 });
 
@@ -890,7 +904,7 @@ test('shows an accessible fullscreen recommendation when fullscreen is preferred
 
 test('adds one non-overlapping Sandbox menu link and positions the existing Hide UI control', () => {
   assert.equal((html.match(/\bid=["']uiToggle["']/g) || []).length, 1);
-  assertAttributes(startTagById('simBackLink'), { href: /index\.html/ });
+  assertAttributes(startTagById('simBackLink'), { href: /#\/modes/ });
   assert.match(elementSourceById('simBackLink'), /Back to Menu/);
   const styles = section('<style>', '</style>');
   assert.match(styles, /#simBackLink\s*\{[^}]*position:\s*fixed[^}]*top:\s*16px[^}]*left:\s*16px/);
@@ -915,7 +929,7 @@ test('returns to the mode menu in-app without a reload', () => {
   assert.match(titleScreen, /preventDefault\(\)/);
   const back = functionSource('returnToMenu');
   assert.match(back, /titleMode = true/);
-  assert.match(back, /classList\.add\(\s*['"]modes['"]/);
+  assert.match(back, /classList\.(?:add|toggle)\(\s*['"]modes['"]/);
   assert.match(back, /classList\.remove\(\s*['"]hidden['"]/);
   assert.match(back, /setCameraMode\(\s*['"]orbit['"]/);
   assert.doesNotMatch(back, /toggleImmersiveUI\(\)/, 'Returning to the menu must preserve the saved HUD preference');
@@ -940,7 +954,7 @@ test('flies the camera home when the user exits the info panel', () => {
 
 test('lazily previews the real Big Bang title scene on hover and keyboard focus', () => {
   assertAttributes(startTagById('bigbangPreview'), {
-    'data-src': /bigbang\.html\?preview=1/,
+    'data-src': /\?preview=1#\/big-bang/,
     'aria-hidden': /true/,
     tabindex: /-1/,
   });

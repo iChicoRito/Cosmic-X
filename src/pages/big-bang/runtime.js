@@ -1,429 +1,11 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="utf-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Before the Stars — CosmicX</title>
-<link rel="icon" href="data:,">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&display=swap" rel="stylesheet">
-<script>
-  if (new URLSearchParams(location.search).has('preview')) {
-    document.documentElement.classList.add('preview');
-  }
-</script>
-<style>
-  /* first rule on purpose: no white flash while arriving from index.html */
-  html, body { margin: 0; height: 100%; overflow: hidden; background: #000; }
-
-  :root {
-    --glass-bg: rgba(0, 0, 0, 0.60);
-    --glass-soft: rgba(255, 255, 255, 0.06);
-    --glass-hover: rgba(255, 255, 255, 0.11);
-    --glass-border: rgba(255, 255, 255, 0.12);
-    --fg: #e7eaf1;
-    --muted: #98a2b8;
-    --accent: #8ab8ff;
-    --ring: rgba(138, 184, 255, 0.55);
-    --font: 'Segoe UI', system-ui, -apple-system, sans-serif;
-    --font-display: 'Space Grotesk', 'Segoe UI', system-ui, sans-serif;
-  }
-
-  [hidden] { display: none !important; }
-  canvas { display: block; }
-
-  .glass {
-    background: var(--glass-bg);
-    -webkit-backdrop-filter: blur(18px) saturate(150%);
-    backdrop-filter: blur(18px) saturate(150%);
-    border: 1px solid var(--glass-border);
-    box-shadow:
-      0 12px 40px rgba(0, 0, 0, 0.5),
-      inset 0 1px 0 rgba(255, 255, 255, 0.09),
-      inset 0 0 24px rgba(255, 255, 255, 0.03);
-  }
-
-  .btn {
-    display: block; width: 100%; padding: 9px 12px;
-    background: var(--glass-soft); color: var(--fg);
-    border: 1px solid var(--glass-border);
-    font: 600 13px var(--font); letter-spacing: .02em; cursor: pointer;
-    transition: background .18s, transform .12s, border-color .18s, box-shadow .18s;
-  }
-  .btn:hover { background: var(--glass-hover); border-color: rgba(255, 255, 255, 0.2); }
-  .btn:active { transform: scale(0.985); }
-  .btn:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
-
-  .chip {
-    display: inline-block; padding: 2px 8px; border-radius: 999px;
-    background: rgba(138, 184, 255, 0.12); border: 1px solid rgba(138, 184, 255, 0.3);
-    color: var(--accent); font: 600 10px var(--font); letter-spacing: .1em; text-transform: uppercase;
-  }
-  .section-label {
-    font-size: 10.5px; text-transform: uppercase; letter-spacing: .14em;
-    color: var(--muted); margin-bottom: -5px;
-  }
-  .note { font-size: 11.5px; color: var(--muted); line-height: 1.5; }
-  .slider-row { display: flex; flex-direction: column; gap: 5px; }
-  .row { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
-  .value { color: var(--muted); font-variant-numeric: tabular-nums; font-size: 12px; }
-
-  input[type="range"] {
-    -webkit-appearance: none; appearance: none;
-    width: 100%; height: 18px; margin: 0; background: transparent; cursor: pointer;
-  }
-  input[type="range"]::-webkit-slider-runnable-track {
-    height: 4px; border-radius: 999px;
-    background: linear-gradient(to right,
-      rgba(138, 184, 255, 0.75) 0 var(--fill, 50%),
-      rgba(255, 255, 255, 0.12) var(--fill, 50%) 100%);
-  }
-  input[type="range"]::-webkit-slider-thumb {
-    -webkit-appearance: none; width: 14px; height: 14px; margin-top: -5px; border-radius: 50%;
-    background: #e9eef7; border: 1px solid rgba(255, 255, 255, 0.35);
-    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.5); transition: transform .15s;
-  }
-  input[type="range"]:hover::-webkit-slider-thumb { transform: scale(1.15); }
-  input[type="range"]:focus-visible { outline: 2px solid var(--ring); outline-offset: 4px; border-radius: 4px; }
-  input[type="range"]::-moz-range-track { height: 4px; border-radius: 999px; background: rgba(255, 255, 255, 0.12); }
-  input[type="range"]::-moz-range-progress { height: 4px; border-radius: 999px; background: rgba(138, 184, 255, 0.75); }
-  input[type="range"]::-moz-range-thumb {
-    width: 14px; height: 14px; border-radius: 50%;
-    background: #e9eef7; border: 1px solid rgba(255, 255, 255, 0.35);
-  }
-
-  #fade {
-    position: fixed; inset: 0; z-index: 15; background: #000;
-    opacity: 0; pointer-events: none; transition: opacity .35s ease;
-  }
-  #fade.on { opacity: 1; }
-
-  #cinebars { position: fixed; inset: 0; z-index: 9; pointer-events: none; }
-  #cinebars .bar { position: absolute; left: 0; right: 0; height: 9vh; background: #000; transform: scaleY(0); transition: transform .9s ease; }
-  #cinebars .bar.top { top: 0; transform-origin: top; }
-  #cinebars .bar.bottom { bottom: 0; transform-origin: bottom; }
-  #cinebars.on .bar { transform: scaleY(1); }
-
-  /* bottom-right, clear of the ← Modes link (top-left), the epoch card
-     (bottom-left), the panel (top-right) and the timeline bar below */
-  #toasts {
-    position: fixed; right: 16px; bottom: 96px; z-index: 21;
-    display: flex; flex-direction: column-reverse; gap: 8px; max-width: min(360px, 80vw);
-    align-items: flex-end;
-  }
-  .toast {
-    display: flex; align-items: baseline; gap: 9px;
-    padding: 9px 14px;
-    background: var(--glass-bg);
-    -webkit-backdrop-filter: blur(14px) saturate(140%);
-    backdrop-filter: blur(14px) saturate(140%);
-    border: 1px solid var(--glass-border);
-    box-shadow: 0 10px 32px rgba(0, 0, 0, 0.45);
-    color: var(--fg); font: 12.5px/1.4 var(--font);
-    animation: toast-in .3s ease;
-    transition: opacity .4s ease, translate .4s ease;
-  }
-  .toast::before {
-    content: ''; width: 7px; height: 7px; flex: none;
-    background: var(--toast-accent, var(--accent)); align-self: center;
-  }
-  .toast.out { opacity: 0; translate: 10px 0; }
-  @keyframes toast-in { from { opacity: 0; translate: 12px 0; } to { opacity: 1; translate: 0 0; } }
-
-  /* ---- title overlay ---- */
-  #bbTitle {
-    position: fixed; inset: 0; z-index: 20;
-    display: flex; align-items: center; justify-content: center;
-    background: radial-gradient(ellipse at 50% 45%, rgba(3, 4, 8, 0.12) 30%, rgba(3, 4, 8, 0.62) 100%);
-    overflow: hidden; transition: opacity 1.1s ease;
-  }
-  #bbTitle.hidden { opacity: 0; pointer-events: none; }
-  #bbTitle::before {
-    content: ''; position: absolute; inset: -20%; pointer-events: none;
-    background:
-      radial-gradient(circle, rgba(255, 255, 255, .75) 0 1px, transparent 1.5px) 0 0 / 130px 130px,
-      radial-gradient(circle, rgba(138, 184, 255, .55) 0 1px, transparent 1.8px) 40px 65px / 190px 190px,
-      radial-gradient(ellipse at 60% 45%, rgba(105, 80, 180, .13), transparent 55%);
-    opacity: .34;
-    animation: bb-star-drift 18s linear infinite;
-  }
-  #bbTitle::after {
-    content: ''; position: absolute; top: 14%; left: -25vw; width: 210px; height: 2px;
-    pointer-events: none; opacity: 0; rotate: -18deg;
-    background: linear-gradient(90deg, transparent, rgba(190, 218, 255, .35), #fff);
-    box-shadow: 0 0 10px rgba(138, 184, 255, .8);
-    animation: bb-shooting-star 4.8s ease-in-out infinite;
-  }
-  @keyframes bb-star-drift {
-    from { translate: -2% -1%; }
-    to { translate: 7% 5%; }
-  }
-  @keyframes bb-shooting-star {
-    0%, 58% { opacity: 0; translate: 0 0; }
-    62% { opacity: 1; }
-    82%, 100% { opacity: 0; translate: 150vw 45vh; }
-  }
-  .title-card {
-    position: relative; z-index: 1;
-    text-align: center; color: var(--fg); font-family: var(--font);
-    max-width: min(90vw, 760px); padding: 0 16px;
-  }
-  .title-card h1 {
-    margin: 0 0 14px; font-size: clamp(38px, 8vw, 76px); font-weight: 700;
-    font-family: var(--font-display);
-    letter-spacing: .06em; padding-left: .06em;
-    background: linear-gradient(180deg, #ffffff, #9db4dd);
-    -webkit-background-clip: text; background-clip: text; color: transparent;
-    filter: drop-shadow(0 2px 14px rgba(0, 0, 0, 0.75)) drop-shadow(0 0 22px rgba(138, 184, 255, 0.25));
-    animation: title-glow 5s ease-in-out infinite;
-  }
-  @keyframes title-glow {
-    0%, 100% { filter: drop-shadow(0 2px 14px rgba(0, 0, 0, 0.75)) drop-shadow(0 0 22px rgba(138, 184, 255, 0.22)); }
-    50%      { filter: drop-shadow(0 2px 14px rgba(0, 0, 0, 0.75)) drop-shadow(0 0 30px rgba(138, 184, 255, 0.4)); }
-  }
-  .tagline {
-    margin: 0 0 32px; color: var(--muted); font-size: 14px; letter-spacing: .04em;
-    text-shadow: 0 1px 8px rgba(0, 0, 0, 0.8);
-  }
-  #bbEnding {
-    --ending-x: 50vw; --ending-y: 44vh; --ending-scale: .9;
-    position: fixed; left: 0; top: 0; z-index: 17;
-    width: min(860px, calc(100vw - 40px)); padding: 20px;
-    color: var(--fg); text-align: center; pointer-events: none;
-    opacity: 0; filter: blur(8px);
-    transform: translate3d(var(--ending-x), var(--ending-y), 0)
-      translate(-50%, -50%) scale(var(--ending-scale));
-    transition: opacity 1.8s ease, filter 1.8s ease, transform .12s linear;
-    will-change: transform, opacity;
-  }
-  #bbEnding.visible { opacity: 1; filter: blur(0); pointer-events: auto; }
-  #bbEnding h2 {
-    margin: 0 0 16px; color: #fff;
-    font: 700 clamp(30px, 5.5vw, 72px)/1.05 var(--font-display);
-    letter-spacing: .02em;
-    text-shadow: 0 2px 18px rgba(0, 0, 0, .9), 0 0 34px rgba(138, 184, 255, .24);
-  }
-  #bbEnding p {
-    max-width: 720px; margin: 0 auto; color: var(--muted);
-    font: 500 clamp(14px, 1.7vw, 22px)/1.55 var(--font); letter-spacing: .04em;
-    text-shadow: 0 2px 14px rgba(0, 0, 0, .95);
-  }
-  .ending-actions {
-    display: flex; justify-content: center; flex-wrap: wrap; gap: 12px;
-    margin-top: 28px;
-  }
-  .ending-actions .btn {
-    width: auto; min-width: 150px; padding: 12px 24px; text-decoration: none;
-    font: 700 12px var(--font-display); letter-spacing: .14em; text-transform: uppercase;
-  }
-  #beginBtn {
-    display: inline-block; width: auto; padding: 16px 64px;
-    color: #fff; font: 700 15px var(--font-display);
-    letter-spacing: .22em; text-transform: uppercase; text-indent: .22em;
-    background: rgba(28, 29, 32, 0.92);
-    border-color: rgba(255, 255, 255, 0.28);
-    transition: background .25s, color .25s, border-color .25s;
-  }
-  #beginBtn:hover, #beginBtn:focus-visible {
-    background: #fff; color: #101216; border-color: #fff;
-  }
-  /* same glass treatment as the sandbox's Back to Menu link */
-  #backLink {
-    position: fixed; top: 16px; left: 16px; z-index: 22;
-    padding: 7px 12px; color: var(--muted); text-decoration: none;
-    background: var(--glass-bg); border: 1px solid var(--glass-border);
-    -webkit-backdrop-filter: blur(14px) saturate(140%);
-    backdrop-filter: blur(14px) saturate(140%);
-    font: 600 11px var(--font); letter-spacing: .08em; text-transform: uppercase;
-    transition: color .2s;
-  }
-  #backLink:hover { color: var(--fg); }
-  #backLink:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
-
-  /* ---- immersive Hide UI toggle (next to the Modes link) ---- */
-  .ui-eye {
-    position: fixed; top: 16px; left: 118px; z-index: 22;
-    padding: 7px 12px; cursor: pointer;
-    background: var(--glass-bg);
-    -webkit-backdrop-filter: blur(14px) saturate(140%);
-    backdrop-filter: blur(14px) saturate(140%);
-    border: 1px solid var(--glass-border);
-    color: var(--muted); font: 600 11px var(--font); letter-spacing: .08em; text-transform: uppercase;
-    opacity: 0; visibility: hidden; transition: opacity .4s ease, color .2s;
-  }
-  .ui-eye.visible { opacity: 1; visibility: visible; }
-  .ui-eye:hover { color: var(--fg); }
-  .ui-eye:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
-  body.ui-hidden .ui-eye.visible { opacity: 0.25; }
-  body.ui-hidden .ui-eye.visible:hover, body.ui-hidden .ui-eye.visible:focus-visible { opacity: 1; }
-  body.ui-hidden :is(#bbBar, #bbPanel, #epochCard, #backLink, #toasts, #cinebars) {
-    visibility: hidden !important;
-  }
-  .preview :is(#bbTitle, #backLink, #bbUiToggle, #bbEnding, #fade, #cinebars, #toasts, #bbPanel, #epochCard, #bbBar) {
-    display: none !important;
-  }
-
-  /* ---- epoch panel (top right) ---- */
-  #bbPanel {
-    position: fixed; top: 16px; right: 16px; z-index: 10;
-    width: 236px; padding: 14px 16px;
-    display: flex; flex-direction: column; gap: 12px;
-    color: var(--fg); font: 13px/1.45 var(--font);
-    opacity: 0; translate: 0 -8px; pointer-events: none;
-    transition: opacity .6s ease, translate .6s ease;
-    max-height: calc(100vh - 140px); overflow-y: auto; scrollbar-width: thin;
-  }
-  #bbPanel.visible { opacity: 1; translate: 0 0; pointer-events: auto; }
-  #epochList { display: flex; flex-direction: column; gap: 5px; }
-  .epoch-btn {
-    display: flex; align-items: baseline; justify-content: space-between; gap: 8px;
-    padding: 6px 10px; text-align: left; cursor: pointer;
-    background: transparent; border: 1px solid transparent; color: var(--muted);
-    font: 600 11.5px var(--font); letter-spacing: .03em;
-    transition: background .15s, color .15s, border-color .15s;
-  }
-  .epoch-btn small { font-weight: 400; font-size: 10px; color: var(--muted); font-variant-numeric: tabular-nums; }
-  .epoch-btn:hover { background: var(--glass-soft); color: var(--fg); }
-  .epoch-btn.active { background: rgba(138, 184, 255, 0.12); border-color: rgba(138, 184, 255, 0.45); color: var(--fg); }
-  .epoch-btn:focus-visible { outline: 2px solid var(--ring); outline-offset: 1px; }
-
-  /* ---- epoch card (bottom left, above the bar) ---- */
-  #epochCard {
-    position: fixed; left: 16px; bottom: 96px; z-index: 10;
-    width: min(340px, calc(100vw - 32px)); padding: 14px 16px;
-    color: var(--fg); font: 13px/1.5 var(--font);
-    opacity: 0; translate: -10px 0; pointer-events: none;
-    transition: opacity .6s ease, translate .6s ease;
-  }
-  #epochCard.visible { opacity: 1; translate: 0 0; pointer-events: auto; }
-  body.ending :is(#bbPanel, #epochCard) { opacity: .08; pointer-events: none; }
-  #epochCard b { display: block; font: 700 17px var(--font-display); letter-spacing: .08em; text-transform: uppercase; margin-bottom: 6px; }
-  #epochCard .chips { display: flex; gap: 6px; margin-bottom: 8px; }
-  #epochCard.swap .card-inner { animation: card-in .45s ease; }
-  @keyframes card-in { from { opacity: 0; translate: 0 6px; } to { opacity: 1; translate: 0 0; } }
-
-  /* ---- timeline bar (bottom) ---- */
-  #bbBar {
-    position: fixed; left: 16px; right: 16px; bottom: calc(12px + env(safe-area-inset-bottom));
-    z-index: 14; padding: 10px 14px 12px;
-    display: grid; grid-template-columns: auto auto 1fr; align-items: center; gap: 8px 16px;
-    color: var(--fg); font: 12px/1.35 var(--font);
-    opacity: 0; translate: 0 10px; pointer-events: none;
-    transition: opacity .6s ease, translate .6s ease;
-  }
-  #bbBar.visible { opacity: 1; translate: 0 0; pointer-events: auto; }
-  .bb-now { min-width: 150px; }
-  .bb-now strong { display: block; font: 700 15px var(--font-display); letter-spacing: .06em; }
-  .bb-now span { color: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
-  .bb-controls { display: flex; align-items: center; gap: 6px; }
-  .bb-controls button, #bbCamBtn {
-    width: auto; min-width: 34px; padding: 7px 9px;
-    background: var(--glass-soft); border: 1px solid var(--glass-border);
-    color: var(--fg); font: 600 11px var(--font); cursor: pointer;
-  }
-  .bb-controls button:hover { background: var(--glass-hover); }
-  .bb-controls button[aria-pressed="true"] { background: rgba(138, 184, 255, 0.25); border-color: rgba(138, 184, 255, 0.5); }
-  .bb-controls button:focus-visible { outline: 2px solid var(--ring); outline-offset: 1px; }
-  .bb-controls output { min-width: 34px; text-align: center; color: var(--muted); font-variant-numeric: tabular-nums; }
-  .bb-track { position: relative; display: flex; align-items: center; min-width: 160px; }
-  .bb-track input { width: 100%; }
-  #bbTicks { position: absolute; left: 7px; right: 7px; top: 50%; height: 0; pointer-events: none; }
-  #bbTicks i {
-    position: absolute; top: -7px; width: 1px; height: 5px;
-    background: rgba(231, 234, 241, 0.4);
-  }
-
-  @media (max-width: 720px) {
-    #bbPanel { display: none; }
-    #epochCard { bottom: 110px; }
-    #bbBar { left: 8px; right: 8px; grid-template-columns: 1fr auto; }
-    .bb-track { grid-column: 1 / -1; }
-    #bbEnding { width: calc(100vw - 24px); padding: 12px; }
-  }
-  @media (prefers-reduced-motion: reduce) {
-    #bbTitle, #bbBar, #bbPanel, #epochCard, .btn { transition: none; }
-    #bbTitle::before, #bbTitle::after { animation: none; }
-    .title-card h1 { animation: none; }
-    #bbEnding { transition: none; }
-  }
-</style>
-<script type="importmap">
-{
-  "imports": {
-    "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
-    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"
-  }
-}
-</script>
-</head>
-<body>
-
-<a id="backLink" href="index.html#modes">&larr; Modes</a>
-<button id="bbUiToggle" class="ui-eye" aria-pressed="false" title="Hide interface (H)">Hide UI</button>
-
-<!-- Title overlay -->
-<div id="bbTitle">
-  <div class="title-card">
-    <h1>Before the Stars</h1>
-    <p class="tagline">From Singularity to Infinity: A Journey from the Big Bang to the Modern Universe</p>
-    <button id="beginBtn" class="btn">Begin</button>
-  </div>
-</div>
-<div id="bbEnding" role="status" aria-live="polite" aria-hidden="true" inert>
-  <h2>The Beginning Was Never the End</h2>
-  <p>The night sky is more than a collection of stars—it is the story of where you came from.</p>
-  <div class="ending-actions">
-    <button id="bbReplayBtn" class="btn" type="button">Play Again</button>
-    <a id="bbEndingBack" class="btn" href="index.html#modes">Back to Menu</a>
-  </div>
-</div>
-
-<div id="fade"></div>
-<div id="cinebars"><div class="bar top"></div><div class="bar bottom"></div></div>
-<div id="toasts" aria-live="polite"></div>
-
-<!-- Epoch jump list + expansion control -->
-<aside id="bbPanel" class="glass" aria-label="Epochs and expansion controls">
-  <div class="section-label">Epochs</div>
-  <div id="epochList"></div>
-  <div class="section-label">Expansion</div>
-  <div class="slider-row">
-    <div class="row"><span>Expansion rate</span><span class="value" id="expansionRateVal">1.0&times;</span></div>
-    <input id="expansionRate" type="range" min="0.2" max="3" step="0.05" value="1" aria-label="Universe expansion rate">
-  </div>
-  <button id="bbCamBtn" class="btn" aria-pressed="false">Camera: Cinematic</button>
-</aside>
-
-<!-- Current epoch dossier -->
-<div id="epochCard" class="glass" aria-live="polite">
-  <div class="card-inner">
-    <b id="epochName"></b>
-    <div class="chips"><span class="chip" id="epochTime"></span><span class="chip" id="epochTemp"></span></div>
-    <div class="note" id="epochDesc"></div>
-  </div>
-</div>
-
-<!-- Timeline transport -->
-<section id="bbBar" class="glass" aria-label="Cosmic timeline">
-  <div class="bb-now">
-    <strong id="bbEpochLabel"></strong>
-    <span id="bbTimeLabel"></span>
-  </div>
-  <div class="bb-controls">
-    <button id="bbReverse" type="button" aria-label="Play in reverse" aria-pressed="false">&#9664;</button>
-    <button id="bbPlay" type="button" aria-label="Play or pause" aria-pressed="false">&#9654;</button>
-    <button id="bbSpeedDown" type="button" aria-label="Slower">&minus;</button>
-    <output id="bbSpeedVal">1&times;</output>
-    <button id="bbSpeedUp" type="button" aria-label="Faster">+</button>
-  </div>
-  <div class="bb-track">
-    <input id="bbScrubber" type="range" min="0" max="1000" step="1" value="0" aria-label="Cosmic timeline">
-    <div id="bbTicks"></div>
-  </div>
-</section>
-
-<script type="module">
+import { createPostprocessingShaders } from '../../shared/postprocessing-shaders.js';
+import { fbm, hash2, makeCanvas, valueNoise } from '../../shared/procedural-canvas.js';
+import { paintRangeFill } from '../../shared/range.js';
+import { createBigBangConfig } from './config.js';
+import { createEpochModel } from './timeline.js';
+import { createCameraChains } from './camera.js';
+import { createSystemRegistry } from './systems.js';
+import { bindBigBangNavigation } from './ui.js';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
@@ -432,53 +14,33 @@ import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
 import { FXAAShader } from 'three/addons/shaders/FXAAShader.js';
+import { disposeThreeRuntime } from '../../shared/dispose-three.js';
+import { createResourceScope } from '../../shared/resource-scope.js';
+
+export function createBigBangRuntime({ root, navigate }) {
+const scope = createResourceScope(window);
+const requestAnimationFrame = scope.requestAnimationFrame;
+const cancelAnimationFrame = scope.cancelAnimationFrame;
+const setTimeout = scope.setTimeout;
+const clearTimeout = scope.clearTimeout;
+const setInterval = scope.setInterval;
+const clearInterval = scope.clearInterval;
+let frameId = 0;
+let paused = false;
+let destroyed = false;
+const { BloomClampShader, LensingShader } = createPostprocessingShaders(THREE);
 
 /* ================================================================
    CONFIG
    ================================================================ */
 
-const CONFIG = {
-  bloom: { threshold: 0.6, strength: 1.15, radius: 0.55 },
-  pixelRatio: 2,
-};
-// ponytail: single quality tier; halve COUNTS + pixelRatio if low-end perf matters
-const COUNTS = {
-  foam: 6000, plasma: 20000, particles: 16000, atomClusters: 2400,
-  galaxies: 60, galaxyPts: 700, milkyWay: 11000, starUnits: 40,
-  planetesimals: 200, starfield: [2200, 1500],
-};
+const { CONFIG, COUNTS } = createBigBangConfig();
 
 /* ================================================================
    SHARED UTILITIES (copied from index.html — kept self-contained)
    ================================================================ */
 
-function hash2(x, y, seed) {
-  let h = Math.imul(x, 374761393) + Math.imul(y, 668265263) + Math.imul(seed, 2246822519);
-  h = Math.imul(h ^ (h >>> 13), 1274126177);
-  return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
-}
-function valueNoise(x, y, seed) {
-  const xi = Math.floor(x), yi = Math.floor(y);
-  const xf = x - xi, yf = y - yi;
-  const u = xf * xf * (3 - 2 * xf), v = yf * yf * (3 - 2 * yf);
-  const a = hash2(xi, yi, seed), b = hash2(xi + 1, yi, seed);
-  const c = hash2(xi, yi + 1, seed), d = hash2(xi + 1, yi + 1, seed);
-  return a + (b - a) * u + (c - a) * v + (a - b - c + d) * u * v;
-}
-function fbm(x, y, seed, octaves = 4) {
-  let sum = 0, amp = 0.5, freq = 1;
-  for (let i = 0; i < octaves; i++) {
-    sum += amp * valueNoise(x * freq, y * freq, seed + i * 101);
-    amp *= 0.5; freq *= 2;
-  }
-  return sum;
-}
 
-function makeCanvas(w, h) {
-  const canvas = document.createElement('canvas');
-  canvas.width = w; canvas.height = h;
-  return [canvas, canvas.getContext('2d')];
-}
 
 let pointSpriteTex;
 function createPointSpriteTexture() {
@@ -580,49 +142,6 @@ function accretionDiskMaterial(inner, outer) {
 }
 
 // Soft HDR cap before bloom (index.html BloomClampShader).
-const BloomClampShader = {
-  uniforms: {
-    tDiffuse: { value: null },
-    uCap: { value: 4.0 },
-  },
-  vertexShader: `varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }`,
-  fragmentShader: `
-    uniform sampler2D tDiffuse; uniform float uCap;
-    varying vec2 vUv;
-    void main() {
-      vec4 c = texture2D(tDiffuse, vUv);
-      vec3 over = max(c.rgb - vec3(uCap), vec3(0.0));
-      gl_FragColor = vec4(min(c.rgb, vec3(uCap)) + over / (1.0 + over), c.a);
-    }`,
-};
-
-// Gravitational lensing for the black-hole shot (index.html LensingShader).
-const LensingShader = {
-  uniforms: {
-    tDiffuse: { value: null },
-    uCenter: { value: new THREE.Vector2(0.5, 0.5) },
-    uStrength: { value: 0 },
-    uAspect: { value: 1 },
-  },
-  vertexShader: `varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }`,
-  fragmentShader: `
-    uniform sampler2D tDiffuse; uniform vec2 uCenter; uniform float uStrength; uniform float uAspect;
-    varying vec2 vUv;
-    void main() {
-      vec2 d = vUv - uCenter; d.x *= uAspect;
-      float r = length(d) + 1e-4;
-      float pull = uStrength / (r * r * 60.0 + 1.0);
-      vec2 uv = vUv - (d / r) * pull;
-      gl_FragColor = texture2D(tDiffuse, uv);
-    }`,
-};
-
-function paintRangeFill(el) {
-  if (!el) return;
-  const span = Number(el.max) - Number(el.min);
-  const frac = span ? (Number(el.value) - Number(el.min)) / span : 0;
-  el.style.setProperty('--fill', 'calc(7px + (100% - 14px) * ' + frac + ')');
-}
 
 function toast(message, color = '#8ab8ff') {
   const host = document.getElementById('toasts');
@@ -765,6 +284,7 @@ texLoader.setCrossOrigin('anonymous');
 function upgradeTexture(material, file, slot = 'map', asColor = true) {
   if (!file) return;
   texLoader.load(TEX_BASE + file, (tex) => {
+    if (destroyed) { tex.dispose(); return; }
     if (asColor) tex.colorSpace = THREE.SRGBColorSpace;
     tex.anisotropy = renderer.capabilities.getMaxAnisotropy();
     material[slot] = tex;
@@ -821,7 +341,7 @@ const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, CONFIG.pixelRatio));
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
-document.body.appendChild(renderer.domElement);
+root.appendChild(renderer.domElement);
 
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x000000);
@@ -856,7 +376,7 @@ function setFXAASize() {
 }
 setFXAASize();
 
-window.addEventListener('resize', () => {
+scope.listen(window, 'resize', () => {
   camera.aspect = window.innerWidth / window.innerHeight;
   camera.updateProjectionMatrix();
   renderer.setSize(window.innerWidth, window.innerHeight);
@@ -880,130 +400,7 @@ const SOLAR_POS = new THREE.Vector3(600, 0, 0);
    is seamless in both directions. spans are screen-time weights.
    ================================================================ */
 
-const ENV_DEFAULTS = {
-  scale: 1, bloom: 1.15, bg: [0, 0, 0],
-  foamA: 0, flashA: 0, gridA: 0,
-  plasmaA: 0, plasmaHeat: 1,
-  particleA: 0, particleMix: 0, cmbA: 0,
-  starA: 0, starMix: 0,
-  galaxyA: 0, galaxyMix: 0,
-  spiralA: 0, spiralMix: 0,
-  solarA: 0, solarMix: 0, ringsA: 0,
-  futureMix: 0, redshift: 0, starfieldA: 0,
-};
-const E = (o) => Object.assign({}, ENV_DEFAULTS, o);
-
-const EPOCHS = [
-  {
-    id: 'singularity', label: 'Singularity', timeLabel: 't = 0', tempLabel: '∞', span: 4,
-    desc: 'All of space, time, matter, and energy compressed into a single point of infinite density. There is no before.',
-    env: E({ scale: 0.015, bloom: 0.9, foamA: 0.12 }),
-    cam: { from: { pos: [0, 1, 30], look: [0, 0, 0], fov: 55 }, to: { pos: [0, 1, 24], look: [0, 0, 0], fov: 57 } },
-  },
-  {
-    id: 'planck', label: 'Planck Epoch', timeLabel: '10⁻⁴³ s', tempLabel: '10³² K', span: 6,
-    desc: 'The earliest meaningful moment. Quantum fluctuations ripple through newborn spacetime as the known laws of physics take hold.',
-    env: E({ scale: 0.02, bloom: 1.5, bg: [0.008, 0.008, 0.016], foamA: 1, flashA: 0.05, gridA: 0.08 }),
-    cam: { from: { pos: [0, 1, 24], look: [0, 0, 0], fov: 57 }, to: { pos: [0, 3, 19], look: [0, 0, 0], fov: 62 } },
-  },
-  {
-    id: 'inflation', label: 'Inflation', timeLabel: '10⁻³⁶–10⁻³² s', tempLabel: '10²⁸ K', span: 7,
-    desc: 'In a brilliant flash, space itself expands faster than light, stretching quantum ripples to cosmic scale.',
-    env: E({ scale: 0.06, bloom: 3.6, bg: [0.02, 0.015, 0.012], foamA: 0.35, flashA: 1, gridA: 0.5, plasmaA: 0.2, plasmaHeat: 1 }),
-    cam: { from: { pos: [0, 3, 19], look: [0, 0, 0], fov: 62 }, to: { pos: [0, 8, 64], look: [0, 0, 0], fov: 72 } },
-  },
-  {
-    id: 'particles', label: 'Particle Formation', timeLabel: '10⁻⁶ s – 3 min', tempLabel: '10¹³ K', span: 11,
-    desc: 'A searing quark–gluon plasma fills the universe and cools; quarks bind into protons and neutrons — the seeds of all matter.',
-    env: E({ scale: 4, bloom: 2, bg: [0.05, 0.02, 0.008], flashA: 0.1, gridA: 0.34, plasmaA: 1, plasmaHeat: 0.92, particleA: 0.85, particleMix: 0.06 }),
-    cam: { from: { pos: [0, 8, 64], look: [0, 0, 0], fov: 72 }, to: { pos: [36, 12, 50], look: [0, 0, 0], fov: 60 } },
-  },
-  {
-    id: 'atoms', label: 'Atoms Form', timeLabel: '380,000 yr', tempLabel: '3,000 K', span: 9,
-    desc: 'Electrons settle around nuclei; the fog clears and light streams free. Hydrogen and helium — the first atoms — fill space.',
-    env: E({ scale: 5.5, bloom: 1.35, bg: [0.035, 0.014, 0.005], gridA: 0.14, plasmaA: 0.45, plasmaHeat: 0.32, particleA: 1, particleMix: 0.8, cmbA: 0.55 }),
-    cam: { from: { pos: [36, 12, 50], look: [0, 0, 0], fov: 60 }, to: { pos: [26, 16, 84], look: [0, 0, 0], fov: 58 } },
-  },
-  {
-    id: 'firststars', label: 'First Stars', timeLabel: '200 Myr', tempLabel: '', span: 12,
-    desc: 'Gravity gathers cold gas into collapsing clouds. When their cores ignite, the first starlight ends the cosmic dark ages.',
-    env: E({ scale: 7, bloom: 1.6, bg: [0.004, 0.006, 0.012], plasmaHeat: 0.1, particleA: 0.22, particleMix: 1, cmbA: 0.16, starA: 1, starMix: 0.06, starfieldA: 0.12 }),
-    cam: { from: { pos: [26, 16, 84], look: [0, 0, 0], fov: 58 }, to: { pos: [70, 30, 150], look: [0, 0, 0], fov: 55 } },
-  },
-  {
-    id: 'galaxies', label: 'First Galaxies', timeLabel: '1 Gyr', tempLabel: '', span: 12,
-    desc: 'Star clusters merge into protogalaxies, then great spirals and ellipticals — all carried apart by the expansion of space.',
-    env: E({ scale: 9, bloom: 1.4, bg: [0.003, 0.005, 0.01], plasmaHeat: 0.1, particleMix: 1, cmbA: 0.04, starA: 0.7, starMix: 1, galaxyA: 1, galaxyMix: 0.12, redshift: 0.12, starfieldA: 0.35 }),
-    cam: { from: { pos: [70, 30, 150], look: [0, 0, 0], fov: 55 }, to: { pos: [120, 60, 380], look: [0, 0, 0], fov: 55 } },
-  },
-  {
-    id: 'milkyway', label: 'Milky Way Forms', timeLabel: '~8 Gyr ago', tempLabel: '', span: 9,
-    desc: 'Our own galaxy assembles from merging clouds and clusters, settling into a barred spiral around a supermassive black hole.',
-    env: E({ scale: 10.5, bloom: 1.35, bg: [0.002, 0.004, 0.009], plasmaHeat: 0.1, particleMix: 1, starA: 0.15, starMix: 1, galaxyA: 0.5, galaxyMix: 0.9, spiralA: 1, spiralMix: 0.15, redshift: 0.2, starfieldA: 0.55 }),
-    cam: { from: { pos: [0, 120, 210], look: [0, 0, 0], fov: 55 }, to: { pos: [80, 45, 140], look: [0, 0, 0], fov: 52 } },
-  },
-  {
-    id: 'solar', label: 'Solar System Forms', timeLabel: '4.6 Gyr ago', tempLabel: '', span: 13,
-    desc: 'In one spiral arm a nebula collapses into a spinning disk. The Sun ignites; dust grows into planetesimals, protoplanets, and worlds.',
-    env: E({ scale: 12, bloom: 1.4, bg: [0.002, 0.003, 0.007], plasmaHeat: 0.1, particleMix: 1, starMix: 1, galaxyA: 0.2, galaxyMix: 1, spiralA: 0.45, spiralMix: 1, solarA: 1, solarMix: 0.05, redshift: 0.26, starfieldA: 0.8 }),
-    cam: { from: { pos: [600, 60, 130], look: [600, 0, 0], fov: 55 }, to: { pos: [655, 26, 85], look: [600, 0, 0], fov: 52 } },
-  },
-  {
-    id: 'present', label: 'Present Day', timeLabel: '13.8 Gyr', tempLabel: '2.7 K', span: 8,
-    desc: 'A middle-aged star, eight planets, and a quiet sky. Every atom around you was forged somewhere along this story.',
-    env: E({ scale: 13.5, bloom: 1.2, bg: [0.002, 0.003, 0.006], plasmaHeat: 0.1, particleMix: 1, starMix: 1, galaxyA: 0.12, galaxyMix: 1, spiralA: 0.22, spiralMix: 1, solarA: 1, solarMix: 1, ringsA: 0.8, redshift: 0.3, starfieldA: 1 }),
-    cam: { from: { pos: [655, 26, 85], look: [600, 0, 0], fov: 52 }, to: { pos: [530, 42, 118], look: [600, 0, 0], fov: 55 } },
-  },
-  {
-    id: 'future', label: 'Future Universe', timeLabel: '10¹⁴ yr and beyond', tempLabel: '→ 0 K', span: 9,
-    desc: 'Expansion accelerates. Galaxies slip beyond the horizon, stars fade to embers, and the universe drifts toward a cold, quiet dark.',
-    env: E({ scale: 15, bloom: 1, bg: [0.001, 0.001, 0.003], plasmaHeat: 0.1, particleMix: 1, starMix: 1, galaxyA: 0.08, galaxyMix: 1, spiralA: 0.15, spiralMix: 1, solarA: 0.9, solarMix: 1, ringsA: 0.25, futureMix: 0.1, redshift: 0.55, starfieldA: 0.7 }),
-    cam: { from: { pos: [530, 42, 118], look: [600, 0, 0], fov: 55 }, to: { pos: [610, 190, 330], look: [600, 0, 0], fov: 50 } },
-  },
-];
-// state at u = 1 (heat death)
-const ENV_END = E({
-  scale: 26, bloom: 0.5, plasmaHeat: 0.1, particleMix: 1, starMix: 1,
-  galaxyA: 0, galaxyMix: 1, spiralA: 0.04, spiralMix: 1,
-  solarA: 0.1, solarMix: 1, futureMix: 1, redshift: 1, starfieldA: 0.05,
-});
-
-(function normalizeEpochs() {
-  const total = EPOCHS.reduce((sum, e) => sum + e.span, 0);
-  let acc = 0;
-  for (const e of EPOCHS) {
-    e.u0 = acc / total;
-    acc += e.span;
-    e.u1 = acc / total;
-  }
-  EPOCHS[EPOCHS.length - 1].u1 = 1;
-})();
-
-function epochAt(u) {
-  for (let i = 0; i < EPOCHS.length; i++) if (u < EPOCHS[i].u1) return i;
-  return EPOCHS.length - 1;
-}
-function epochProgress(u) {
-  const e = EPOCHS[epochAt(u)];
-  return THREE.MathUtils.clamp((u - e.u0) / (e.u1 - e.u0), 0, 1);
-}
-function uForEpoch(i) {
-  return EPOCHS[THREE.MathUtils.clamp(i, 0, EPOCHS.length - 1)].u0;
-}
-
-const envOut = E({});
-function envAt(u) {
-  const i = epochAt(u);
-  const a = EPOCHS[i].env;
-  const b = i + 1 < EPOCHS.length ? EPOCHS[i + 1].env : ENV_END;
-  const k = smooth(epochProgress(u), 0, 1);
-  for (const key in a) {
-    envOut[key] = Array.isArray(a[key])
-      ? [0, 1, 2].map(c => a[key][c] + (b[key][c] - a[key][c]) * k)
-      : a[key] + (b[key] - a[key]) * k;
-  }
-  return envOut;
-}
+const { EPOCHS, epochAt, epochProgress, uForEpoch, envAt } = createEpochModel();
 
 /* ================================================================
    PLAYBACK STATE
@@ -1124,7 +521,7 @@ function replayTimeline() {
    so scrubbing either direction is always consistent.
    ================================================================ */
 
-const systems = [];
+const systems = createSystemRegistry();
 function addSystem(s) { systems.push(s); return s; }
 
 const ATTEN = 220.0; // shared point-size attenuation factor
@@ -1953,7 +1350,7 @@ const _camPos = new THREE.Vector3(), _camLook = new THREE.Vector3(), _camB = new
 // The documentary rail: piecewise Catmull-Rom chains through the epoch poses,
 // split only at the two hard cuts. C¹ inside a chain, so the camera never does
 // the per-epoch smoothstep stop-and-go it used to.
-const CAM_CHAINS = [];
+const CAM_CHAINS = createCameraChains();
 
 function buildCameraPath() {
   const same = (a, b) => a[0] === b[0] && a[1] === b[1] && a[2] === b[2];
@@ -2193,7 +1590,7 @@ function setupBBUI() {
 
   document.getElementById('bbUiToggle').addEventListener('click', toggleImmersiveUI);
 
-  window.addEventListener('keydown', (event) => {
+  scope.listen(window, 'keydown', (event) => {
     if (event.code === 'KeyH' && !/^(INPUT|SELECT|TEXTAREA)$/.test(event.target?.tagName || '')) {
       toggleImmersiveUI();
       return;
@@ -2263,7 +1660,8 @@ function update(dt) {
 }
 
 function animate() {
-  requestAnimationFrame(animate);
+  if (paused || destroyed) return;
+  frameId = requestAnimationFrame(animate);
   update(Math.min(clock.getDelta(), 0.1));
   composer.render();
 }
@@ -2298,6 +1696,36 @@ window.bang = {
   get lensingPass() { return lensingPass; },
   get expansionRate() { return expansionRate; },
 };
-</script>
-</body>
-</html>
+
+bindBigBangNavigation({ root, navigate, listen: scope.listen });
+
+const debugHandle = window.bang;
+
+function pause() {
+  if (paused || destroyed) return;
+  paused = true;
+  cancelAnimationFrame(frameId);
+  clock.stop();
+}
+
+function resume() {
+  if (!paused || destroyed) return;
+  paused = false;
+  clock.start();
+  animate();
+}
+
+function destroy() {
+  if (destroyed) return;
+  paused = true;
+  cancelAnimationFrame(frameId);
+  clock.stop();
+  destroyed = true;
+  scope.destroy();
+  disposeThreeRuntime({ scene, controls, composer, renderer });
+  document.body.classList.remove('ui-hidden', 'ending');
+  if (window.bang === debugHandle) delete window.bang;
+}
+
+return { pause, resume, destroy };
+}
