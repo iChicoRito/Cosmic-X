@@ -163,7 +163,7 @@ function orbitPos(def, theta, out) {
   return out.set(Math.cos(theta) * r, 0, Math.sin(theta) * r);
 }
   return {
-    GALAXIES, PLANET_FACTS, factsFor, typeFor,
+    GALAXIES, PLANET_FACTS, factsFor, typeFor, sci,
     TRAIL_POINTS, BELT_COUNT, BELT_PERIOD_DAYS,
     scaledDist, geoRadius, density, orbitPos,
   };

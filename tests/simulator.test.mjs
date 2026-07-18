@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import { createSolarData } from '../src/pages/solar/data.js';
 
 const read = path => readFileSync(new URL(path, import.meta.url), 'utf8').replace(/\r\n/g, '\n');
 const shell = read('../index.html');
@@ -105,6 +106,16 @@ function assertContracts(source, contracts) {
 test('keeps the modular simulator runtime syntactically valid', async () => {
   const module = await import('../src/pages/solar/runtime.js');
   assert.equal(typeof module.createSolarRuntime, 'function');
+});
+
+test('exposes the scientific formatter used by planet information panels', () => {
+  const data = createSolarData(
+    { distanceScale: 34, distanceExp: 0.55, particleDensity: 1, quality: 'high' },
+    { high: { density: 1 } },
+  );
+
+  assert.equal(typeof data.sci, 'function');
+  assert.equal(data.sci(5.972e24), '5.97×10²⁴');
 });
 
 test('declares an inline favicon so local browser verification stays free of 404 errors', () => {

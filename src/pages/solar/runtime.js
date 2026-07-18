@@ -56,7 +56,7 @@ function julianEpoch(ms = simulationTimeMs()) {
 }
 
 const {
-  GALAXIES, PLANET_FACTS, factsFor, typeFor,
+  GALAXIES, PLANET_FACTS, factsFor, typeFor, sci,
   TRAIL_POINTS, BELT_COUNT, BELT_PERIOD_DAYS,
   scaledDist, geoRadius, density, orbitPos,
 } = createSolarData(CONFIG, QUALITY);
