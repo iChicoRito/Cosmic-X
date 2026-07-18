@@ -4,8 +4,9 @@
     {
       "name": "solar",
       "runtimeExecutable": "npx",
-      "runtimeArgs": ["-y", "http-server", "-p", "8123", "-c-1"],
-      "port": 8123
+      "runtimeArgs": ["-y", "http-server", "-c-1"],
+      "port": 8123,
+      "autoPort": true
     }
   ]
 }

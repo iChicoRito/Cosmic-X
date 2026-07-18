@@ -356,23 +356,23 @@
   #title.hidden { opacity: 0; pointer-events: none; visibility: hidden; }
   .title-card {
     text-align: center; color: var(--fg); font-family: var(--font);
-    max-width: min(90vw, 760px); padding: 0 16px;
+    max-width: min(92vw, 1400px); padding: 0 16px;
+    transition: translate .6s ease;
   }
+  #title.modes .title-card { translate: 0 -18vh; }
   .title-card h1 {
-    margin: 0 0 14px; font-size: clamp(44px, 9vw, 88px); font-weight: 700;
+    margin: 0 0 14px; font-size: clamp(48px, 10vw, 210px); font-weight: 700;
     font-family: var(--font-display);
-    letter-spacing: .06em; padding-left: .06em;
-    background: linear-gradient(180deg, #ffffff, #9db4dd);
+    letter-spacing: .01em;
+    background: linear-gradient(180deg, #ffffff 30%, #b7bcc6);
     -webkit-background-clip: text; background-clip: text; color: transparent;
-    filter: drop-shadow(0 2px 14px rgba(0, 0, 0, 0.75)) drop-shadow(0 0 22px rgba(138, 184, 255, 0.25));
-    animation: title-glow 5s ease-in-out infinite;
+    filter: drop-shadow(0 2px 14px rgba(0, 0, 0, 0.75));
   }
-  @keyframes title-glow {
-    0%, 100% { filter: drop-shadow(0 2px 14px rgba(0, 0, 0, 0.75)) drop-shadow(0 0 22px rgba(138, 184, 255, 0.22)); }
-    50%      { filter: drop-shadow(0 2px 14px rgba(0, 0, 0, 0.75)) drop-shadow(0 0 30px rgba(138, 184, 255, 0.4)); }
-  }
+  /* long mode names render smaller than the wordmark, per the reference art */
+  .title-card h1.long { font-size: clamp(40px, 7.4vw, 150px); }
   .tagline {
-    margin: 0 0 32px; color: var(--muted); font-size: 14.5px; letter-spacing: .04em;
+    margin: 0 0 40px; color: var(--muted); letter-spacing: .04em;
+    font-size: clamp(15px, 1.3vw, 26px);
     text-shadow: 0 1px 8px rgba(0, 0, 0, 0.8);
   }
   .stage-wrap { display: grid; justify-items: center; }
@@ -380,55 +380,69 @@
     grid-area: 1 / 1;
     transition: opacity .45s ease, translate .45s ease, visibility 0s linear .45s;
   }
-  #title .mode-grid { opacity: 0; pointer-events: none; visibility: hidden; translate: 0 10px; }
-  #title.modes .mode-grid { opacity: 1; pointer-events: auto; visibility: visible; translate: 0 0; transition-delay: 0s; }
   #title.modes #stageStart { opacity: 0; pointer-events: none; visibility: hidden; translate: 0 -10px; }
   .menu-btn {
-    padding: 14px 58px; cursor: pointer; color: var(--fg);
-    background: var(--glass-bg);
-    -webkit-backdrop-filter: blur(18px) saturate(150%);
-    backdrop-filter: blur(18px) saturate(150%);
-    border: 1px solid var(--glass-border);
+    padding: 16px 64px; cursor: pointer; color: #fff;
+    background: rgba(28, 29, 32, 0.92);
+    border: 1px solid rgba(255, 255, 255, 0.28); border-radius: 0;
     font: 700 15px var(--font-display); letter-spacing: .22em; text-transform: uppercase;
     text-indent: .22em;
-    transition: background .25s, border-color .25s, box-shadow .25s;
+    transition: background .25s, color .25s, border-color .25s;
   }
-  .menu-btn:hover {
-    background: rgba(138, 184, 255, 0.08);
-    border-color: rgba(138, 184, 255, 0.75);
-    box-shadow: 0 0 22px rgba(138, 184, 255, 0.25);
-  }
+  .menu-btn:hover { background: #fff; color: #101216; border-color: #fff; }
   .menu-btn:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
-  /* the crossfade lives on the inner span so it never restarts the h1's
-     title-glow loop (restarting the filter animation reads as a flicker) */
-  #titleText { display: inline-block; }
-  #titleText.swap { animation: title-swap .45s ease; }
+  /* the crossfade lives on the inner spans so retitling never restarts
+     any animation on the h1 itself (that reads as a flicker) */
+  #titleText, #taglineText { display: inline-block; }
+  #titleText.swap, #taglineText.swap { animation: title-swap .45s ease; }
   @keyframes title-swap { from { opacity: 0; } to { opacity: 1; } }
-  .mode-grid { display: flex; gap: 14px; justify-content: center; flex-wrap: wrap; }
+  /* ---- bottom mode bar (stage 2) ---- */
+  .mode-bar {
+    position: absolute; left: 0; right: 0; bottom: 0; text-align: center;
+    opacity: 0; pointer-events: none; visibility: hidden; translate: 0 24px;
+    transition: opacity .45s ease, translate .45s ease, visibility 0s linear .45s;
+  }
+  #title.modes .mode-bar { opacity: 1; pointer-events: auto; visibility: visible; translate: 0 0; transition-delay: 0s; }
+  .mode-hint {
+    margin: 0 0 26px; color: var(--muted); letter-spacing: .04em;
+    font-size: clamp(14px, 1.2vw, 22px);
+    text-shadow: 0 1px 8px rgba(0, 0, 0, 0.8);
+  }
+  .mode-grid { display: flex; border-top: 1px solid rgba(255, 255, 255, 0.22); }
   .mode-card {
-    width: min(300px, 80vw); padding: 18px 22px 20px; cursor: pointer;
-    display: flex; flex-direction: column; gap: 8px; text-align: left;
-    background: var(--glass-bg); color: var(--fg);
-    -webkit-backdrop-filter: blur(18px) saturate(150%);
-    backdrop-filter: blur(18px) saturate(150%);
-    border: 1px solid var(--glass-border);
-    font: 13px/1.45 var(--font);
-    transition: background .25s, border-color .25s, box-shadow .25s;
+    flex: 1 1 0; min-width: 0; padding: 26px clamp(24px, 4vw, 72px); cursor: pointer;
+    display: flex; align-items: center; justify-content: center; gap: 18px;
+    background: rgba(5, 6, 9, 0.42); color: var(--fg);
+    border: 0; font: 13px/1.45 var(--font);
+    transition: background .25s, color .25s;
   }
-  .mode-card b {
-    font: 700 17px var(--font-display); letter-spacing: .1em; text-transform: uppercase;
+  .mode-card + .mode-card { border-left: 1px solid rgba(255, 255, 255, 0.22); }
+  .mode-txt { display: flex; flex-direction: column; gap: 6px; align-items: center; text-align: center; }
+  .mode-card b { font: 700 clamp(17px, 1.5vw, 26px) var(--font-display); letter-spacing: .01em; color: #fff; }
+  .mode-txt > span { color: var(--muted); font-size: clamp(12px, 1.1vw, 19px); }
+  .mode-play {
+    display: none; align-items: center; gap: 10px;
+    font: 700 15px var(--font-display); letter-spacing: .18em;
+    color: #0c0e12;
   }
-  .mode-card span { color: var(--muted); font-size: 11.5px; line-height: 1.5; }
-  .mode-card:hover {
-    background: rgba(138, 184, 255, 0.06);
-    border-color: rgba(138, 184, 255, 0.75);
-    box-shadow: 0 0 22px rgba(138, 184, 255, 0.25);
+  .mode-card:hover, .mode-card:focus-visible { background: #fff; }
+  .mode-card:hover .mode-txt, .mode-card:focus-visible .mode-txt {
+    align-items: flex-start; text-align: left; margin-right: auto;
   }
-  .mode-card:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
+  .mode-card:hover b, .mode-card:focus-visible b { color: #0c0e12; }
+  .mode-card:hover .mode-txt > span, .mode-card:focus-visible .mode-txt > span { color: #666c7a; }
+  .mode-card:hover .mode-play, .mode-card:focus-visible .mode-play { display: flex; }
+  .mode-card:focus-visible { outline: 2px solid var(--ring); outline-offset: -3px; }
+  @media (max-width: 640px) {
+    .mode-grid { flex-direction: column; }
+    .mode-card + .mode-card { border-left: 0; border-top: 1px solid rgba(255, 255, 255, 0.22); }
+  }
 
   /* ---- immersive Hide UI toggle ---- */
+  /* bottom-right above the bar: dossier owns top-left, controls top-right,
+     toasts bottom-left */
   .ui-eye {
-    position: fixed; top: 16px; left: 16px; z-index: 22;
+    position: fixed; right: 16px; bottom: var(--bottom-bar-offset); z-index: 22;
     padding: 7px 12px; cursor: pointer;
     background: var(--glass-bg);
     -webkit-backdrop-filter: blur(14px) saturate(140%);
@@ -551,8 +565,8 @@
     #barSelectedMetric { white-space: normal; }
   }
   @media (prefers-reduced-motion: reduce) {
-    #ui, #title, .switch .thumb, .btn, .mode-card, .menu-btn, .stage-wrap > .stage { transition: none; }
-    .title-card h1 { animation: none; }
+    #ui, #title, .switch .thumb, .btn, .mode-card, .menu-btn, .stage-wrap > .stage,
+    .title-card, .mode-bar { transition: none; }
   }
 </style>
 <script type="importmap">
@@ -570,21 +584,24 @@
 <div id="title">
   <div class="title-card">
     <h1><span id="titleText">CosmicX</span></h1>
-    <p class="tagline">A live model of our cosmic neighborhood</p>
+    <p class="tagline"><span id="taglineText">A live model of our cosmic neighborhood</span></p>
     <div class="stage-wrap">
       <div class="stage" id="stageStart">
         <button id="enterBtn" class="menu-btn">Start</button>
       </div>
-      <div class="stage mode-grid">
-        <button id="startBtn" class="mode-card">
-          <b>Become the Creator</b>
-          <span>A Solar System Sandbox Simulation</span>
-        </button>
-        <button id="bigbangBtn" class="mode-card">
-          <b>Before the Stars</b>
-          <span>From Singularity to Infinity: A Journey from the Big Bang to the Modern Universe</span>
-        </button>
-      </div>
+    </div>
+  </div>
+  <div class="mode-bar">
+    <p class="mode-hint">Choose your simulation mode</p>
+    <div class="mode-grid">
+      <button id="startBtn" class="mode-card">
+        <span class="mode-txt"><b>Become the Creator</b><span>A solar system sandbox simulation</span></span>
+        <span class="mode-play" aria-hidden="true"><svg viewBox="0 0 10 12" width="11" height="13"><path d="M0 0 10 6 0 12Z" fill="currentColor"/></svg>PLAY</span>
+      </button>
+      <button id="bigbangBtn" class="mode-card">
+        <span class="mode-txt"><b>Before the Stars</b><span>From singularity to Infinity</span></span>
+        <span class="mode-play" aria-hidden="true"><svg viewBox="0 0 10 12" width="11" height="13"><path d="M0 0 10 6 0 12Z" fill="currentColor"/></svg>PLAY</span>
+      </button>
     </div>
   </div>
 </div>
@@ -4858,21 +4875,32 @@ function setupTitleScreen() {
   // hovering (or keyboard-focusing) a mode card retitles the screen; the
   // revert hangs off the whole grid so card-to-card moves never flash back
   const titleText = document.getElementById('titleText');
-  const setMenuTitle = (text) => {
-    if (titleText.textContent === text) return;
-    titleText.textContent = text;
-    titleText.classList.remove('swap');
-    void titleText.offsetWidth;   // restart the crossfade animation
-    titleText.classList.add('swap');
+  const taglineText = document.getElementById('taglineText');
+  const heroH1 = titleText.closest('h1');
+  const swapText = (el, text) => {
+    if (el.textContent === text) return;
+    el.textContent = text;
+    el.classList.remove('swap');
+    void el.offsetWidth;   // restart the crossfade animation
+    el.classList.add('swap');
   };
-  for (const [id, label] of [['startBtn', 'Become the Creator'], ['bigbangBtn', 'Before the Stars']]) {
+  const setMenuTitle = (title, tag) => {
+    swapText(titleText, title);
+    swapText(taglineText, tag);
+    heroH1.classList.toggle('long', title.length > 10);
+  };
+  const DEFAULT_HERO = ['CosmicX', 'A live model of our cosmic neighborhood'];
+  for (const [id, title, tag] of [
+    ['startBtn', 'Become the Creator', 'A solar system sandbox simulation'],
+    ['bigbangBtn', 'Before the Stars', 'A Journey from the Big Bang to the Modern Universe'],
+  ]) {
     const card = document.getElementById(id);
-    for (const on of ['mouseenter', 'focus']) card.addEventListener(on, () => setMenuTitle(label));
+    for (const on of ['mouseenter', 'focus']) card.addEventListener(on, () => setMenuTitle(title, tag));
   }
   const grid = document.querySelector('#title .mode-grid');
-  grid.addEventListener('mouseleave', () => setMenuTitle('CosmicX'));
+  grid.addEventListener('mouseleave', () => setMenuTitle(...DEFAULT_HERO));
   grid.addEventListener('focusout', (event) => {
-    if (!grid.contains(event.relatedTarget)) setMenuTitle('CosmicX');
+    if (!grid.contains(event.relatedTarget)) setMenuTitle(...DEFAULT_HERO);
   });
   // hovering the Big Bang card crossfades the live scene toward the singularity
   const bb = document.getElementById('bigbangBtn');
