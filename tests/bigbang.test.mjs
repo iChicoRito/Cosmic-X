@@ -142,3 +142,25 @@ test('requests fullscreen from Begin with the same non-blocking fallback as the 
   assert.match(source, /requestFullscreen\(\)[\s\S]*\.catch\(\(\)\s*=>\s*toast\(/);
   assert.match(source, /Fullscreen unavailable — continuing in this window/);
 });
+
+test('matches the landing Start button treatment while retaining Begin', () => {
+  assert.match(html, /id=["']beginBtn["'][^>]*>\s*Begin\s*</i);
+  const base = /#beginBtn\s*\{[^}]*\}/s.exec(html)?.[0] || '';
+  assert.match(base, /background:\s*rgba\(\s*28\s*,\s*29\s*,\s*32\s*,\s*0\.92\s*\)/);
+  assert.match(base, /border-color:\s*rgba\(\s*255\s*,\s*255\s*,\s*255\s*,\s*0\.28\s*\)/);
+  const active = /#beginBtn:hover,\s*#beginBtn:focus-visible\s*\{[^}]*\}/s.exec(html)?.[0] || '';
+  assert.match(active, /background:\s*#fff/);
+  assert.match(active, /color:\s*#101216/);
+  assert.match(active, /border-color:\s*#fff/);
+});
+
+test('adds visible title-scene activity with a reduced-motion fallback', () => {
+  assert.match(html, /#bbTitle::before\s*\{[^}]*animation:\s*bb-star-drift/s);
+  assert.match(html, /#bbTitle::after\s*\{[^}]*animation:\s*bb-shooting-star/s);
+  assert.match(html, /@keyframes\s+bb-star-drift/);
+  assert.match(html, /@keyframes\s+bb-shooting-star/);
+  assert.match(
+    html,
+    /@media\s*\(prefers-reduced-motion:\s*reduce\)[\s\S]*?#bbTitle::before,\s*#bbTitle::after\s*\{[^}]*animation:\s*none/,
+  );
+});

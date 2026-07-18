@@ -199,7 +199,7 @@
 
   /* ---- info panel (planet dossier) ---- */
   #infoPanel {
-    position: fixed; top: 16px; left: 16px; z-index: 10;
+    position: fixed; top: 58px; left: 16px; z-index: 10;
     width: 326px;
     color: var(--fg); font: 13px/1.45 var(--font);
     opacity: 0; translate: -10px 0; pointer-events: none;
@@ -213,7 +213,7 @@
     background: rgba(138, 184, 255, 0.12); border: 1px solid rgba(138, 184, 255, 0.3);
     color: var(--accent); font: 600 10px var(--font); letter-spacing: .1em; text-transform: uppercase;
   }
-  #ipBody { padding: 0 16px 16px; display: flex; flex-direction: column; gap: 12px; max-height: calc(100vh - 108px - var(--bottom-bar-offset)); overflow-y: auto; scrollbar-width: thin; }
+  #ipBody { padding: 0 16px 16px; display: flex; flex-direction: column; gap: 12px; max-height: calc(100vh - 150px - var(--bottom-bar-offset)); overflow-y: auto; scrollbar-width: thin; }
   /* the panel's labels sit directly above bars/rows, not inside a gapped column */
   #ipBody .section-label { margin-bottom: 4px; }
   .stat-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 9px 14px; }
@@ -391,10 +391,13 @@
   }
   .menu-btn:hover { background: #fff; color: #101216; border-color: #fff; }
   .menu-btn:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
-  /* the crossfade lives on the inner spans so retitling never restarts
-     any animation on the h1 itself (that reads as a flicker) */
   #titleText, #taglineText { display: inline-block; }
-  #titleText.swap, #taglineText.swap { animation: title-swap .45s ease; }
+  #titleText.typing::after {
+    content: '|'; margin-left: .04em; color: #fff; -webkit-text-fill-color: #fff;
+    animation: title-caret .5s step-end infinite;
+  }
+  #taglineText.swap { animation: title-swap .3s ease; }
+  @keyframes title-caret { 50% { opacity: 0; } }
   @keyframes title-swap { from { opacity: 0; } to { opacity: 1; } }
   /* ---- bottom mode bar (stage 2) ---- */
   .mode-bar {
@@ -405,44 +408,54 @@
   #title.modes .mode-bar { opacity: 1; pointer-events: auto; visibility: visible; translate: 0 0; transition-delay: 0s; }
   .mode-hint {
     margin: 0 0 26px; color: var(--muted); letter-spacing: .04em;
-    font-size: clamp(14px, 1.2vw, 22px);
+    font: 500 clamp(14px, 1.2vw, 22px)/1.4 var(--font);
     text-shadow: 0 1px 8px rgba(0, 0, 0, 0.8);
   }
   .mode-grid { display: flex; border-top: 1px solid rgba(255, 255, 255, 0.22); }
   .mode-card {
     flex: 1 1 0; min-width: 0; padding: 26px clamp(24px, 4vw, 72px); cursor: pointer;
-    display: flex; align-items: center; justify-content: center; gap: 18px;
+    display: flex; align-items: center; justify-content: flex-start; gap: 18px;
     background: rgba(5, 6, 9, 0.42); color: var(--fg);
     border: 0; font: 13px/1.45 var(--font);
     transition: background .25s, color .25s;
   }
   .mode-card + .mode-card { border-left: 1px solid rgba(255, 255, 255, 0.22); }
-  .mode-txt { display: flex; flex-direction: column; gap: 6px; align-items: center; text-align: center; }
+  .mode-txt { display: flex; flex-direction: column; gap: 6px; align-items: flex-start; text-align: left; min-width: 0; }
   .mode-card b { font: 700 clamp(17px, 1.5vw, 26px) var(--font-display); letter-spacing: .01em; color: #fff; }
   .mode-txt > span { color: var(--muted); font-size: clamp(12px, 1.1vw, 19px); }
   .mode-play {
-    display: none; align-items: center; gap: 10px;
+    display: flex; align-items: center; gap: 10px; margin-left: auto;
     font: 700 15px var(--font-display); letter-spacing: .18em;
-    color: #0c0e12;
+    color: #0c0e12; opacity: 0; visibility: hidden;
+    transition: opacity .2s ease, visibility 0s linear .2s;
   }
   .mode-card:hover, .mode-card:focus-visible { background: #fff; }
-  .mode-card:hover .mode-txt, .mode-card:focus-visible .mode-txt {
-    align-items: flex-start; text-align: left; margin-right: auto;
-  }
   .mode-card:hover b, .mode-card:focus-visible b { color: #0c0e12; }
   .mode-card:hover .mode-txt > span, .mode-card:focus-visible .mode-txt > span { color: #666c7a; }
-  .mode-card:hover .mode-play, .mode-card:focus-visible .mode-play { display: flex; }
+  .mode-card:hover .mode-play, .mode-card:focus-visible .mode-play {
+    opacity: 1; visibility: visible; transition-delay: 0s;
+  }
   .mode-card:focus-visible { outline: 2px solid var(--ring); outline-offset: -3px; }
   @media (max-width: 640px) {
     .mode-grid { flex-direction: column; }
     .mode-card + .mode-card { border-left: 0; border-top: 1px solid rgba(255, 255, 255, 0.22); }
   }
 
-  /* ---- immersive Hide UI toggle ---- */
-  /* bottom-right above the bar: dossier owns top-left, controls top-right,
-     toasts bottom-left */
+  /* ---- sandbox navigation and immersive controls ---- */
+  #simBackLink {
+    position: fixed; top: 16px; left: 16px; z-index: 22;
+    padding: 7px 12px; color: var(--muted); text-decoration: none;
+    background: var(--glass-bg); border: 1px solid var(--glass-border);
+    -webkit-backdrop-filter: blur(14px) saturate(140%);
+    backdrop-filter: blur(14px) saturate(140%);
+    font: 600 11px var(--font); letter-spacing: .08em; text-transform: uppercase;
+    opacity: 0; visibility: hidden; transition: opacity .4s ease, color .2s;
+  }
+  #simBackLink.visible { opacity: 1; visibility: visible; }
+  #simBackLink:hover { color: var(--fg); }
+  #simBackLink:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
   .ui-eye {
-    position: fixed; right: 16px; bottom: var(--bottom-bar-offset); z-index: 22;
+    position: fixed; top: 16px; right: 344px; z-index: 22;
     padding: 7px 12px; cursor: pointer;
     background: var(--glass-bg);
     -webkit-backdrop-filter: blur(14px) saturate(140%);
@@ -457,9 +470,30 @@
   /* the toggle itself stays reachable, dimmed, as the restore affordance */
   body.ui-hidden .ui-eye.visible { opacity: 0.25; }
   body.ui-hidden .ui-eye.visible:hover, body.ui-hidden .ui-eye.visible:focus-visible { opacity: 1; }
-  body.ui-hidden :is(#ui, #bottomBar, #labels, #toasts, #warnings, #infoPanel, #timelineDetailsPanel, #modeChip) {
+  body.ui-hidden :is(#ui, #bottomBar, #labels, #toasts, #warnings, #infoPanel, #timelineDetailsPanel, #modeChip, #simBackLink) {
     visibility: hidden !important;
   }
+
+  /* ---- first-load fullscreen recommendation ---- */
+  #fullscreenNotice {
+    width: min(440px, calc(100vw - 32px)); padding: 0;
+    background: rgba(10, 12, 18, 0.96); color: var(--fg);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    box-shadow: 0 24px 80px rgba(0, 0, 0, 0.72);
+    font: 14px/1.6 var(--font);
+  }
+  #fullscreenNotice::backdrop {
+    background: rgba(0, 0, 0, 0.72);
+    -webkit-backdrop-filter: blur(8px);
+    backdrop-filter: blur(8px);
+  }
+  .fullscreen-notice-body { padding: 28px; text-align: center; }
+  #fullscreenNoticeTitle {
+    margin: 0 0 10px; color: #fff;
+    font: 700 25px/1.2 var(--font-display); letter-spacing: .01em;
+  }
+  .fullscreen-notice-body p { margin: 0 0 24px; color: var(--muted); }
+  #fullscreenNoticeDismiss { min-width: 150px; }
 
   /* galaxy switch fade */
   #fade {
@@ -528,8 +562,10 @@
 
   @media (max-width: 720px) {
     #ui { top: 12px; right: 12px; width: min(318px, calc(100vw - 24px)); }
+    .ui-eye { top: 12px; right: 340px; }
+    #simBackLink { top: 12px; left: 12px; }
     #infoPanel {
-      top: 12px; left: 12px; z-index: 13;
+      top: 54px; left: 12px; z-index: 13;
       width: min(326px, calc(100vw - 24px));
     }
     body:has(#infoPanel.visible) #ui.visible {
@@ -564,9 +600,14 @@
     #timelineDetailsPanel .bar-extra-controls { flex-wrap: wrap; margin-bottom: 8px; }
     #barSelectedMetric { white-space: normal; }
   }
+  @media (max-width: 440px) {
+    .ui-eye { top: 12px; right: 12px; }
+    #ui { top: 52px; }
+  }
   @media (prefers-reduced-motion: reduce) {
     #ui, #title, .switch .thumb, .btn, .mode-card, .menu-btn, .stage-wrap > .stage,
     .title-card, .mode-bar { transition: none; }
+    #titleText.typing::after { animation: none; }
   }
 </style>
 <script type="importmap">
@@ -579,6 +620,14 @@
 </script>
 </head>
 <body>
+
+<dialog id="fullscreenNotice" aria-labelledby="fullscreenNoticeTitle">
+  <div class="fullscreen-notice-body">
+    <h2 id="fullscreenNoticeTitle">Fullscreen recommended</h2>
+    <p>For the best experience, use fullscreen mode. CosmicX will request fullscreen when you launch a simulation.</p>
+    <button id="fullscreenNoticeDismiss" class="menu-btn" type="button">Got it</button>
+  </div>
+</dialog>
 
 <!-- Title screen -->
 <div id="title">
@@ -607,6 +656,8 @@
 </div>
 
 <div id="fade"></div>
+
+<a id="simBackLink" href="index.html">&larr; Back to Menu</a>
 
 <!-- Immersive view: hides every overlay, leaves only the 3D scene -->
 <button id="uiToggle" class="ui-eye" aria-pressed="false" title="Hide interface (H)">Hide UI</button>
@@ -4740,7 +4791,42 @@ function clearSpawned() {
 let titleMode = true;
 let titleAngle = 2.2;
 let titlePan = 0;
+let menuTitleRun = 0;
 const titleAim = new THREE.Vector3();
+
+function typeMenuTitle(text) {
+  const titleText = document.getElementById('titleText');
+  const heroH1 = titleText.closest('h1');
+  const run = ++menuTitleRun;
+  heroH1.classList.toggle('long', text.length > 10);
+  titleText.classList.remove('typing');
+  if (matchMedia('(prefers-reduced-motion: reduce)').matches) {
+    titleText.textContent = text;
+    return;
+  }
+  titleText.textContent = '';
+  titleText.classList.add('typing');
+  let index = 0;
+  const tick = () => {
+    if (run !== menuTitleRun) return;
+    titleText.textContent = text.slice(0, ++index);
+    if (index < text.length) setTimeout(tick, 22);
+    else titleText.classList.remove('typing');
+  };
+  tick();
+}
+
+function setupFullscreenNotice() {
+  const notice = document.getElementById('fullscreenNotice');
+  document.getElementById('fullscreenNoticeDismiss').addEventListener('click', () => notice.close());
+  notice.addEventListener('keydown', event => {
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      notice.close();
+    }
+  });
+  notice.showModal();
+}
 
 // Big Bang hover preview: a camera-parented veil + quantum-foam vignette that
 // crossfades over the live solar system while "Before the Stars" is hovered.
@@ -4865,6 +4951,7 @@ function setupTitleScreen() {
       document.getElementById('ui').classList.add('visible');
       document.getElementById('bottomBar').classList.add('visible');
       document.getElementById('uiToggle').classList.add('visible');
+      document.getElementById('simBackLink').classList.add('visible');
     }, CONFIG.introDur * 1000 - 500);
   }, { once: true });
   // Big Bang mode is its own page; fade to black, then navigate
@@ -4874,9 +4961,7 @@ function setupTitleScreen() {
   }, { once: true });
   // hovering (or keyboard-focusing) a mode card retitles the screen; the
   // revert hangs off the whole grid so card-to-card moves never flash back
-  const titleText = document.getElementById('titleText');
   const taglineText = document.getElementById('taglineText');
-  const heroH1 = titleText.closest('h1');
   const swapText = (el, text) => {
     if (el.textContent === text) return;
     el.textContent = text;
@@ -4885,9 +4970,8 @@ function setupTitleScreen() {
     el.classList.add('swap');
   };
   const setMenuTitle = (title, tag) => {
-    swapText(titleText, title);
+    typeMenuTitle(title);
     swapText(taglineText, tag);
-    heroH1.classList.toggle('long', title.length > 10);
   };
   const DEFAULT_HERO = ['CosmicX', 'A live model of our cosmic neighborhood'];
   for (const [id, title, tag] of [
@@ -5334,6 +5418,7 @@ setupPostFX();
 buildGalaxy(0);
 setupPicking();
 setupUI();
+setupFullscreenNotice();
 setupTitleScreen();
 labelRenderer.domElement.style.display = CONFIG.showLabels ? '' : 'none';
 animate();

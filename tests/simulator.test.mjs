@@ -121,7 +121,9 @@ test('keeps only switches, sliders, progress bars, and badges rounded', () => {
     atmosphereBar: /\.atmo-bar\s*\{[^}]*border-radius:\s*999px/,
     modeBadge: /#modeChip\s*\{[^}]*border-radius:\s*999px/,
   });
-  assert.equal((styles.match(/\bborder-radius\s*:/g) || []).length, 13);
+  const rounded = [...styles.matchAll(/\bborder-radius\s*:\s*([^;}]+)/g)]
+    .filter(([, value]) => value.trim() !== '0');
+  assert.equal(rounded.length, 13);
 });
 
 test('defines the required simulator functions', () => {
@@ -594,10 +596,10 @@ test('keeps the hidden title screen out of the tab order so nothing navigates by
   assert.match(titleScreen, /\.inert = true/);
 });
 
-test('isolates the menu title crossfade from the glow loop and reverts at the grid edge', () => {
+test('isolates the menu title animation and reverts at the grid edge', () => {
   assert.ok(/id=["']titleText["']/.test(elementSourceById('title')), 'Missing titleText span');
   const styles = section('<style>', '</style>');
-  assert.match(styles, /#titleText\.swap/);
+  assert.match(styles, /#titleText\.typing/);
   const titleScreen = section('function setupTitleScreen() {', 'const clock = new THREE.Clock();');
   assert.match(titleScreen, /focusout/);
 });
@@ -631,4 +633,60 @@ test('stages the title into Start and mode selection', () => {
     hoverTitle: /mouseenter/,
     keyboardTitle: /focus/,
   });
+});
+
+test('keeps mode labels left aligned while reserving the hidden Play affordance', () => {
+  const styles = section('<style>', '</style>');
+  assert.match(styles, /\.mode-card\s*\{[^}]*justify-content:\s*flex-start/);
+  assert.match(styles, /\.mode-txt\s*\{[^}]*align-items:\s*flex-start[^}]*text-align:\s*left/);
+  const playRule = /\.mode-play\s*\{[^}]*\}/s.exec(styles)?.[0] || '';
+  assert.match(playRule, /display:\s*flex/);
+  assert.match(playRule, /margin-left:\s*auto/);
+  assert.match(playRule, /opacity:\s*0/);
+  assert.match(playRule, /visibility:\s*hidden/);
+  assert.doesNotMatch(playRule, /display:\s*none/);
+  assert.match(styles, /\.mode-card:hover \.mode-play[^}]*\{[^}]*opacity:\s*1[^}]*visibility:\s*visible/);
+  assert.match(styles, /\.mode-hint\s*\{[^}]*font:[^;}]*var\(--font\)/);
+});
+
+test('types menu titles quickly and cancels stale hover animations', () => {
+  const typing = functionSource('typeMenuTitle');
+  assert.match(html, /\blet\s+menuTitleRun\s*=/);
+  assert.match(typing, /\+\+menuTitleRun/);
+  assert.match(typing, /run\s*!==\s*menuTitleRun/);
+  assert.match(typing, /setTimeout\([^,]+,\s*22\s*\)/);
+  assert.match(typing, /prefers-reduced-motion/);
+  const titleScreen = section('function setupTitleScreen() {', 'const clock = new THREE.Clock();');
+  assert.match(titleScreen, /typeMenuTitle\(\s*title\s*\)/);
+});
+
+test('shows an accessible fullscreen recommendation on every landing-page load', () => {
+  assertAttributes(startTagById('fullscreenNotice'), {
+    'aria-labelledby': /fullscreenNoticeTitle/,
+  });
+  assertAttributes(startTagById('fullscreenNoticeDismiss'), { type: /button/ });
+  const notice = elementSourceById('fullscreenNotice');
+  assert.match(notice, /Fullscreen recommended/);
+  assert.match(notice, /For the best experience, use fullscreen mode/);
+  assert.match(notice, />\s*Got it\s*</);
+  const setup = functionSource('setupFullscreenNotice');
+  assert.match(setup, /\.showModal\(\)/);
+  assert.match(setup, /\.close\(\)/);
+  assert.match(setup, /keydown/);
+  assert.match(setup, /event\.key\s*===\s*['"]Escape['"][\s\S]*notice\.close\(\)/);
+  assert.match(html, /\bsetupFullscreenNotice\(\)\s*;/);
+});
+
+test('adds one non-overlapping Sandbox menu link and positions the existing Hide UI control', () => {
+  assert.equal((html.match(/\bid=["']uiToggle["']/g) || []).length, 1);
+  assertAttributes(startTagById('simBackLink'), { href: /index\.html/ });
+  assert.match(elementSourceById('simBackLink'), /Back to Menu/);
+  const styles = section('<style>', '</style>');
+  assert.match(styles, /#simBackLink\s*\{[^}]*position:\s*fixed[^}]*top:\s*16px[^}]*left:\s*16px/);
+  assert.match(styles, /#infoPanel\s*\{[^}]*top:\s*58px/);
+  assert.match(styles, /\.ui-eye\s*\{[^}]*position:\s*fixed[^}]*top:\s*16px[^}]*right:\s*344px/);
+  assert.match(styles, /@media\s*\(max-width:\s*440px\)[\s\S]*?\.ui-eye\s*\{[^}]*top:\s*12px[^}]*right:\s*12px[^}]*\}[\s\S]*?#ui\s*\{[^}]*top:\s*52px/);
+  assert.match(styles, /body\.ui-hidden[^}]*#simBackLink/);
+  const titleScreen = section('function setupTitleScreen() {', 'const clock = new THREE.Clock();');
+  assert.match(titleScreen, /simBackLink['"]\)\.classList\.add\(\s*['"]visible['"]\s*\)/);
 });
