@@ -93,6 +93,10 @@ test('keeps the inline simulator module syntactically valid', () => {
   assert.doesNotThrow(() => new Function(source));
 });
 
+test('declares an inline favicon so local browser verification stays free of 404 errors', () => {
+  assert.match(html, /<link\s+rel=["']icon["']\s+href=["']data:,["']\s*\/?>/i);
+});
+
 test('gives every simulation toggle an accessible name', () => {
   const ids = ['playing', 'trails', 'labels-toggle', 'collisions', 'belt-toggle', 'nebula-toggle'];
   const missing = ids.filter(id => !new RegExp(`<input[^>]*id=["']${id}["'][^>]*aria-label=["'][^"']+["']`).test(html));
@@ -207,9 +211,10 @@ test('wires camera controls and implements every active mode', () => {
   assert.doesNotMatch(camera, /\b(?:landingStart|landingProgress|surfaceCameraTarget|surfaceNormal|surfaceForward)\b/);
 });
 
-test('requests fullscreen from Start with a non-blocking fallback', () => {
+test('requests fullscreen from Start only when the saved display mode prefers it', () => {
   const titleScreen = section('function setupTitleScreen() {', 'const clock = new THREE.Clock();');
   assertContracts(titleScreen, {
+    preference: /CONFIG\.displayMode\s*===\s*['"]fullscreen['"]/,
     fullscreenState: /document\.fullscreenElement/,
     fullscreenSupport: /document\.fullscreenEnabled/,
     fullscreenRequest: /document\.documentElement\.requestFullscreen\(\)/,
@@ -571,6 +576,7 @@ test('extends the runtime self-check to timeline, selection, bar, and finite met
     bar: /checks\.bottomBar\s*=\s*(?!true\b|false\b)[^;]+;/,
     selection: /checks\.selection\s*=\s*(?!true\b|false\b)[^;]+;/,
     finiteMetrics: /checks\.(?:finiteMetrics|summaryMetrics)\s*=\s*(?!true\b|false\b)[^;]+;/,
+    settings: /checks\.settings\s*=\s*(?!true\b|false\b)[^;]+;/,
   });
 });
 
@@ -643,6 +649,202 @@ test('stages the title into Start and mode selection', () => {
   });
 });
 
+test('shows the normal-weight creator credit only on the initial title screen', () => {
+  const title = elementSourceById('title');
+  const startIndex = title.indexOf('id="enterBtn"');
+  const settingsIndex = title.indexOf('id="settingsBtn"');
+  assert.ok(startIndex !== -1 && settingsIndex > startIndex, 'Settings must sit directly after Start');
+  assert.match(title, /class=["'][^"']*title-actions[^"']*["']/);
+  assert.doesNotMatch(title, /Developed by Mark Adrianne Salunga/);
+  assert.match(elementSourceById('appCredit'), /Developed by Mark Adrianne Salunga/);
+
+  const settingsButton = startTagById('settingsBtn', title);
+  assertAttributes(settingsButton, {
+    type: /button/,
+    'aria-haspopup': /dialog/,
+    'aria-controls': /settingsDialog/,
+  });
+
+  const styles = section('<style>', '</style>');
+  const actions = /\.title-actions \.menu-btn\s*\{[^}]*\}/s.exec(styles)?.[0] || '';
+  const credit = /\.app-credit\s*\{[^}]*\}/s.exec(styles)?.[0] || '';
+  assert.match(actions, /background:\s*rgba\(\s*0\s*,\s*0\s*,\s*0\s*,\s*\.15\s*\)/);
+  assert.match(actions, /-webkit-backdrop-filter:\s*blur\(/);
+  assert.match(actions, /backdrop-filter:\s*blur\(/);
+  assert.match(credit, /position:\s*fixed/);
+  assert.match(credit, /left:\s*50%/);
+  assert.match(credit, /translate:\s*-50%/);
+  assert.match(credit, /bottom:/);
+  assert.match(credit, /font:\s*400\b/);
+  assert.match(styles, /#title\.modes \+ \.app-credit,\s*#title\.hidden \+ \.app-credit\s*\{[^}]*(?:visibility:\s*hidden[^}]*opacity:\s*0|opacity:\s*0[^}]*visibility:\s*hidden)/s);
+});
+
+test('releases the settings modal before changing fullscreen', () => {
+  const display = functionSource('setDisplayMode');
+  const closeAt = display.indexOf('dialog.close()');
+  const fullscreenAt = display.indexOf('requestFullscreen()');
+  assert.notEqual(closeAt, -1, 'Display changes must close the modal dialog');
+  assert.ok(closeAt < fullscreenAt, 'The modal must close before the fullscreen transition');
+});
+
+test('returns from mode selection to a reusable title screen', () => {
+  const title = elementSourceById('title');
+  assertAttributes(startTagById('titleBackBtn', title), { type: /button/ });
+  assert.match(title, /Back to Title Screen/);
+  assert.ok(
+    title.indexOf('id="titleBackBtn"') < title.indexOf('class="mode-bar"'),
+    'The title back control must not be anchored inside the bottom mode bar',
+  );
+
+  const setup = functionSource('setupTitleScreen');
+  assert.match(setup, /titleBackBtn/);
+  assert.match(setup, /classList\.remove\(\s*['"]modes['"]\s*\)/);
+  assert.match(setup, /history\.replaceState\(/);
+  assert.match(setup, /location\.hash\s*===\s*['"]#modes['"]/);
+  assert.doesNotMatch(setup, /enterBtn[\s\S]{0,180}once:\s*true/);
+
+  const styles = section('<style>', '</style>');
+  const back = /\.mode-back\s*\{[^}]*\}/s.exec(styles)?.[0] || '';
+  assert.match(back, /position:\s*fixed/);
+  assert.match(back, /top:\s*16px/);
+  assert.match(back, /right:\s*16px/);
+  assert.doesNotMatch(back, /\bleft:/);
+});
+
+test('provides accessible categorized settings without unsupported placeholders', () => {
+  const dialog = elementSourceById('settingsDialog');
+  assertAttributes(startTagById('settingsDialog'), { 'aria-labelledby': /settingsTitle/ });
+  assertAttributes(startTagById('settingsClose', dialog), { type: /button/ });
+
+  for (const [tab, panel] of [
+    ['settingsTabDisplay', 'settingsPanelDisplay'],
+    ['settingsTabGraphics', 'settingsPanelGraphics'],
+    ['settingsTabCamera', 'settingsPanelCamera'],
+    ['settingsTabInterface', 'settingsPanelInterface'],
+  ]) {
+    assertAttributes(startTagById(tab, dialog), {
+      role: /tab/,
+      'aria-selected': /(?:true|false)/,
+      'aria-controls': new RegExp(panel),
+    });
+    assertAttributes(startTagById(panel, dialog), { role: /tabpanel/ });
+  }
+
+  for (const id of [
+    'settingsDisplay', 'settingsQuality', 'settingsAntialiasing',
+    'settingsBloom', 'settingsDensity', 'settingsBelt', 'settingsNebulas',
+    'settingsMouseSensitivity', 'settingsCameraSpeed', 'settingsRotationSpeed',
+    'settingsPanSpeed', 'settingsZoomSpeed', 'settingsHUD', 'settingsTimeline',
+    'settingsLabels', 'settingsWarnings',
+  ]) {
+    assert.ok(startTagById(id, dialog), `Missing supported setting ${id}`);
+  }
+  assert.doesNotMatch(
+    dialog,
+    /Resolution|Borderless|FPS Limit|UI Scale|Brightness|Gamma|Field of View|Texture Quality|Motion Blur|Depth of Field|Screen Space Reflections|Volumetric Lighting|Cloud Quality|Minimap|Coordinates|Tooltips|Left Click|Right Click|Middle Mouse/i,
+  );
+});
+
+test('sanitizes and loads persisted settings before scene creation', () => {
+  assert.match(html, /const\s+SETTINGS_KEY\s*=\s*['"]cosmicx\.settings\.v1['"]/);
+  const sanitize = Function(`${functionSource('sanitizeSettings')}; return sanitizeSettings;`)();
+  const clean = sanitize({
+    displayMode: 'windowed',
+    quality: 'ultra',
+    bloomStrength: -4,
+    particleDensity: 99,
+    antialiasing: false,
+    mouseSensitivity: 0,
+    cameraSpeed: 99,
+    rotationSpeed: 1.5,
+    panSpeed: 'fast',
+    zoomSpeed: 1.25,
+    showHUD: false,
+    showTimeline: true,
+    showLabels: false,
+    showWarnings: true,
+  });
+  assert.equal(clean.displayMode, 'windowed');
+  assert.equal('quality' in clean, false);
+  assert.equal(clean.bloomStrength, 0);
+  assert.equal(clean.particleDensity, 2);
+  assert.equal(clean.mouseSensitivity, 0.25);
+  assert.equal(clean.cameraSpeed, 3);
+  assert.equal(clean.rotationSpeed, 1.5);
+  assert.equal('panSpeed' in clean, false);
+  assert.equal(clean.zoomSpeed, 1.25);
+  assert.equal(clean.antialiasing, false);
+  assert.equal(clean.showHUD, false);
+  assert.equal(clean.showTimeline, true);
+  assert.equal(clean.showLabels, false);
+  assert.equal(clean.showWarnings, true);
+
+  const load = functionSource('loadSettings');
+  const save = functionSource('saveSettings');
+  assert.match(load, /localStorage\.getItem\(\s*SETTINGS_KEY\s*\)/);
+  assert.match(load, /JSON\.parse/);
+  assert.match(load, /sanitizeSettings\(/);
+  assert.match(load, /catch/);
+  assert.match(save, /localStorage\.setItem\(\s*SETTINGS_KEY/);
+  assert.match(save, /bloomStrength:\s*CONFIG\.bloom\.strength/);
+  assert.match(save, /catch/);
+  const boot = section('/* ================================================================\n   BOOT', '</script>');
+  assert.ok(boot.indexOf('loadSettings();') < boot.indexOf('initScene();'));
+});
+
+test('synchronizes supported settings with existing controls and runtime paths', () => {
+  const setupSettings = functionSource('setupSettings');
+  assertContracts(setupSettings, {
+    dialogOpen: /settingsBtn[\s\S]*?showModal\(\)/,
+    dialogClose: /settingsClose[\s\S]*?\.close\(\)/,
+    keyboardTabs: /ArrowLeft|ArrowRight/,
+    qualityBridge: /settingsQuality[\s\S]*?quality/,
+    bloomBridge: /settingsBloom[\s\S]*?bloomI/,
+    densityBridge: /settingsDensity[\s\S]*?density/,
+    beltBridge: /settingsBelt[\s\S]*?belt-toggle/,
+    nebulaBridge: /settingsNebulas[\s\S]*?nebula-toggle/,
+    labelBridge: /settingsLabels[\s\S]*?labels-toggle/,
+  });
+
+  const setupUI = section('function setupUI() {', 'function clearSpawned() {');
+  assert.match(listenerWindow(setupUI, 'quality', 'change'), /rebuildSimulationAt\(\s*simDays/);
+  assert.match(listenerWindow(setupUI, 'density', 'change'), /rebuildSimulationAt\(\s*simDays/);
+  assert.match(setupUI, /saveSettings\(\)/);
+  assert.match(functionSource('applyQuality'), /fxaaPass\.enabled\s*=\s*CONFIG\.antialiasing/);
+
+  const camera = functionSource('updateCameraMode');
+  assert.match(camera, /CONFIG\.cameraSpeed/);
+  assert.match(functionSource('setupPicking'), /CONFIG\.mouseSensitivity/);
+  const scene = functionSource('initScene');
+  assert.match(scene, /controls\.rotateSpeed\s*=\s*CONFIG\.rotationSpeed/);
+  assert.match(scene, /controls\.panSpeed\s*=\s*CONFIG\.panSpeed/);
+  assert.match(scene, /controls\.zoomSpeed\s*=\s*CONFIG\.zoomSpeed/);
+});
+
+test('applies display, HUD, timeline, label, and warning preferences through shared state', () => {
+  const display = functionSource('setDisplayMode');
+  assert.match(display, /document\.documentElement\.requestFullscreen\(\)/);
+  assert.match(display, /document\.exitFullscreen\(\)/);
+  assert.match(display, /CONFIG\.displayMode/);
+
+  const notice = functionSource('setupFullscreenNotice');
+  assert.match(notice, /CONFIG\.displayMode\s*!==\s*['"]fullscreen['"]/);
+
+  const hud = functionSource('setHudVisible');
+  assert.match(hud, /classList\.toggle\(\s*['"]ui-hidden['"]/);
+  assert.match(functionSource('toggleImmersiveUI'), /setHudVisible\(/);
+
+  const timeline = functionSource('setTimelineVisible');
+  assert.match(timeline, /\.hidden\s*=/);
+  assert.match(timeline, /classList\.toggle\(\s*['"]visible['"]/);
+
+  const warnings = functionSource('updateImpactWarnings');
+  assert.match(warnings, /!CONFIG\.showWarnings/);
+  assert.match(functionSource('setupSettings'), /settingsWarnings/);
+  assert.match(functionSource('setupSettings'), /settingsTimeline/);
+  assert.match(functionSource('setupSettings'), /settingsHUD/);
+});
+
 test('keeps mode labels left aligned while reserving the hidden Play affordance', () => {
   const styles = section('<style>', '</style>');
   assert.match(styles, /\.mode-card\s*\{[^}]*justify-content:\s*flex-start/);
@@ -668,7 +870,7 @@ test('types menu titles quickly and cancels stale hover animations', () => {
   assert.match(titleScreen, /typeMenuTitle\(\s*title\s*\)/);
 });
 
-test('shows an accessible fullscreen recommendation on every landing-page load', () => {
+test('shows an accessible fullscreen recommendation when fullscreen is preferred', () => {
   assertAttributes(startTagById('fullscreenNotice'), {
     'aria-labelledby': /fullscreenNoticeTitle/,
   });
@@ -678,6 +880,7 @@ test('shows an accessible fullscreen recommendation on every landing-page load',
   assert.match(notice, /For the best experience, use fullscreen mode/);
   assert.match(notice, />\s*Got it\s*</);
   const setup = functionSource('setupFullscreenNotice');
+  assert.match(setup, /CONFIG\.displayMode\s*!==\s*['"]fullscreen['"]/);
   assert.match(setup, /\.showModal\(\)/);
   assert.match(setup, /\.close\(\)/);
   assert.match(setup, /keydown/);
@@ -715,6 +918,7 @@ test('returns to the mode menu in-app without a reload', () => {
   assert.match(back, /classList\.add\(\s*['"]modes['"]/);
   assert.match(back, /classList\.remove\(\s*['"]hidden['"]/);
   assert.match(back, /setCameraMode\(\s*['"]orbit['"]/);
+  assert.doesNotMatch(back, /toggleImmersiveUI\(\)/, 'Returning to the menu must preserve the saved HUD preference');
 });
 
 test('cycles the title backdrop across every galaxy environment', () => {
@@ -734,9 +938,27 @@ test('flies the camera home when the user exits the info panel', () => {
   assert.match(html, /if \(infoTarget\) exitInfoPanel\(\)/);
 });
 
-test('previews formed galaxies on Big Bang hover, not white foam', () => {
-  const preview = functionSource('buildTitlePreview');
-  assert.match(preview, /aCol/);
-  assert.match(preview, /255,\s*205,\s*150/);   // bigbang.html warm-glow palette
-  assert.doesNotMatch(preview, /vec3\(0\.75,\s*0\.85,\s*1\.0\)/);
+test('lazily previews the real Big Bang title scene on hover and keyboard focus', () => {
+  assertAttributes(startTagById('bigbangPreview'), {
+    'data-src': /bigbang\.html\?preview=1/,
+    'aria-hidden': /true/,
+    tabindex: /-1/,
+  });
+  const styles = section('<style>', '</style>');
+  assert.match(styles, /#bigbangPreview\s*\{[^}]*pointer-events:\s*none[^}]*opacity:\s*0/s);
+  assert.match(styles, /#bigbangPreview\.active\s*\{[^}]*opacity:\s*1/s);
+
+  const show = functionSource('showBigBangPreview');
+  assert.match(show, /\.dataset\.src/);
+  assert.match(show, /\.src\s*=/);
+  assert.match(show, /classList\.add\(\s*['"]active['"]/);
+  assert.match(functionSource('hideBigBangPreview'), /classList\.remove\(\s*['"]active['"]/);
+
+  const titleScreen = functionSource('setupTitleScreen');
+  assert.match(titleScreen, /mouseenter[\s\S]*showBigBangPreview/);
+  assert.match(titleScreen, /focus[\s\S]*showBigBangPreview/);
+  assert.match(titleScreen, /mouseleave[\s\S]*hideBigBangPreview/);
+  assert.match(titleScreen, /blur[\s\S]*hideBigBangPreview/);
+  assert.doesNotMatch(html, /function\s+buildTitlePreview\s*\(/);
+  assert.doesNotMatch(html, /function\s+updateTitlePreview\s*\(/);
 });

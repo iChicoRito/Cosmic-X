@@ -4,6 +4,7 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Solar System Simulator</title>
+<link rel="icon" href="data:,">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&display=swap" rel="stylesheet">
@@ -383,6 +384,9 @@
     transition: opacity .45s ease, translate .45s ease, visibility 0s linear .45s;
   }
   #title.modes #stageStart { opacity: 0; pointer-events: none; visibility: hidden; translate: 0 -10px; }
+  .title-actions {
+    width: min(280px, 78vw); display: flex; flex-direction: column; gap: 12px;
+  }
   .menu-btn {
     padding: 16px 64px; cursor: pointer; color: #fff;
     background: rgba(28, 29, 32, 0.92);
@@ -391,8 +395,23 @@
     text-indent: .22em;
     transition: background .25s, color .25s, border-color .25s;
   }
+  .title-actions .menu-btn {
+    width: 100%; background: rgba(0, 0, 0, .15);
+    -webkit-backdrop-filter: blur(14px) saturate(130%);
+    backdrop-filter: blur(14px) saturate(130%);
+  }
   .menu-btn:hover { background: #fff; color: #101216; border-color: #fff; }
   .menu-btn:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
+  .app-credit {
+    position: fixed; left: 50%; translate: -50% 0; z-index: 21;
+    bottom: max(18px, env(safe-area-inset-bottom));
+    margin: 0; color: var(--muted); white-space: nowrap;
+    font: 400 clamp(12px, 1.3vw, 10px)/1.4 var(--font); letter-spacing: .04em;
+    text-shadow: 0 1px 8px rgba(0, 0, 0, .85);
+    transition: opacity .3s ease, visibility 0s linear .3s;
+  }
+  #title.modes + .app-credit,
+  #title.hidden + .app-credit { opacity: 0; visibility: hidden; }
   #titleText, #taglineText { display: inline-block; }
   #titleText.typing::after {
     content: '|'; margin-left: .04em; color: #fff; -webkit-text-fill-color: #fff;
@@ -408,6 +427,19 @@
     transition: opacity .45s ease, translate .45s ease, visibility 0s linear .45s;
   }
   #title.modes .mode-bar { opacity: 1; pointer-events: auto; visibility: visible; translate: 0 0; transition-delay: 0s; }
+  .mode-back {
+    position: fixed; top: 16px; right: 16px; z-index: 22;
+    padding: 7px 12px; cursor: pointer; color: var(--muted);
+    background: var(--glass-bg); border: 1px solid var(--glass-border);
+    -webkit-backdrop-filter: blur(14px) saturate(140%);
+    backdrop-filter: blur(14px) saturate(140%);
+    font: 600 11px var(--font); letter-spacing: .08em; text-transform: uppercase;
+    opacity: 0; visibility: hidden; pointer-events: none;
+    transition: opacity .4s ease, visibility 0s linear .4s, color .2s;
+  }
+  #title.modes > .mode-back { opacity: 1; visibility: visible; pointer-events: auto; transition-delay: 0s; }
+  .mode-back:hover { color: var(--fg); }
+  .mode-back:focus-visible { outline: 2px solid var(--ring); outline-offset: 3px; }
   .mode-hint {
     margin: 0 0 26px; color: var(--muted); letter-spacing: .04em;
     font: 500 clamp(14px, 1.2vw, 22px)/1.4 var(--font);
@@ -443,6 +475,13 @@
     .mode-card + .mode-card { border-left: 0; border-top: 1px solid rgba(255, 255, 255, 0.22); }
   }
 
+  #bigbangPreview {
+    position: fixed; inset: 0; z-index: 4; width: 100%; height: 100%; border: 0;
+    pointer-events: none; opacity: 0; visibility: hidden; background: #000;
+    transition: opacity .55s ease, visibility 0s linear .55s;
+  }
+  #bigbangPreview.active { opacity: 1; visibility: visible; transition-delay: 0s; }
+
   /* ---- sandbox navigation and immersive controls ---- */
   #simBackLink {
     position: fixed; top: 16px; left: 16px; z-index: 22;
@@ -472,7 +511,7 @@
   /* the toggle itself stays reachable, dimmed, as the restore affordance */
   body.ui-hidden .ui-eye.visible { opacity: 0.25; }
   body.ui-hidden .ui-eye.visible:hover, body.ui-hidden .ui-eye.visible:focus-visible { opacity: 1; }
-  body.ui-hidden :is(#ui, #bottomBar, #labels, #toasts, #warnings, #infoPanel, #timelineDetailsPanel, #modeChip, #simBackLink) {
+  body.ui-hidden :is(#ui, #bottomBar, #labels, #toasts, #warnings, #infoPanel, #timelineDetailsPanel, #modeChip, #simBackLink, #appCredit) {
     visibility: hidden !important;
   }
 
@@ -496,6 +535,55 @@
   }
   .fullscreen-notice-body p { margin: 0 0 24px; color: var(--muted); }
   #fullscreenNoticeDismiss { min-width: 150px; }
+
+  /* ---- title settings ---- */
+  #settingsDialog {
+    width: min(720px, calc(100vw - 32px)); max-height: min(760px, calc(100vh - 32px));
+    padding: 0; overflow: hidden; color: var(--fg);
+    background: rgba(8, 10, 15, .82); border: 1px solid rgba(255, 255, 255, .2);
+    -webkit-backdrop-filter: blur(22px) saturate(145%);
+    backdrop-filter: blur(22px) saturate(145%);
+    box-shadow: 0 24px 90px rgba(0, 0, 0, .74);
+    font: 13px/1.45 var(--font);
+  }
+  #settingsDialog::backdrop {
+    background: rgba(0, 0, 0, .65);
+    -webkit-backdrop-filter: blur(8px);
+    backdrop-filter: blur(8px);
+  }
+  .settings-header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 18px 20px 14px; border-bottom: 1px solid var(--glass-border);
+  }
+  #settingsTitle {
+    margin: 0; color: #fff;
+    font: 700 22px/1.2 var(--font-display); letter-spacing: .02em;
+  }
+  #settingsClose { width: 34px; height: 34px; font-size: 22px; }
+  .settings-tabs {
+    display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px;
+    padding: 12px 14px; border-bottom: 1px solid var(--glass-border);
+  }
+  .settings-tab {
+    padding: 9px 8px; border: 1px solid transparent; cursor: pointer;
+    background: transparent; color: var(--muted);
+    font: 600 11px var(--font); letter-spacing: .08em; text-transform: uppercase;
+  }
+  .settings-tab:hover { background: var(--glass-soft); color: var(--fg); }
+  .settings-tab[aria-selected="true"] {
+    background: var(--glass-soft); color: #fff; border-color: var(--glass-border);
+  }
+  .settings-tab:focus-visible { outline: 2px solid var(--ring); outline-offset: 1px; }
+  .settings-panels { max-height: min(590px, calc(100vh - 180px)); overflow-y: auto; }
+  .settings-panel {
+    padding: 20px; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr));
+    align-content: start; gap: 18px 24px;
+  }
+  .settings-panel .settings-wide { grid-column: 1 / -1; }
+  .settings-panel .slider-row { min-width: 0; }
+  .settings-panel select { margin-top: 6px; }
+  .settings-panel .row { min-height: 24px; }
+  .settings-help { margin: 0; color: var(--muted); font-size: 11.5px; }
 
   /* galaxy switch fade */
   #fade {
@@ -606,6 +694,15 @@
     .ui-eye { top: 12px; right: 12px; }
     #ui { top: 52px; }
   }
+  @media (max-width: 560px) {
+    .settings-tabs { grid-template-columns: repeat(2, 1fr); }
+    .settings-panel { grid-template-columns: 1fr; padding: 16px; }
+    .settings-panel .settings-wide { grid-column: auto; }
+    .app-credit {
+      bottom: max(12px, env(safe-area-inset-bottom));
+      width: calc(100vw - 24px); white-space: normal; text-align: center; font-size: 11px;
+    }
+  }
   @media (prefers-reduced-motion: reduce) {
     #ui, #title, .switch .thumb, .btn, .mode-card, .menu-btn, .stage-wrap > .stage,
     .title-card, .mode-bar { transition: none; }
@@ -631,14 +728,119 @@
   </div>
 </dialog>
 
+<dialog id="settingsDialog" aria-labelledby="settingsTitle">
+  <header class="settings-header">
+    <h2 id="settingsTitle">Settings</h2>
+    <button id="settingsClose" class="icon-btn" type="button" aria-label="Close settings">&times;</button>
+  </header>
+  <div class="settings-tabs" role="tablist" aria-label="Settings categories">
+    <button id="settingsTabDisplay" class="settings-tab" type="button" role="tab"
+      aria-selected="true" aria-controls="settingsPanelDisplay">Display</button>
+    <button id="settingsTabGraphics" class="settings-tab" type="button" role="tab"
+      aria-selected="false" aria-controls="settingsPanelGraphics" tabindex="-1">Graphics</button>
+    <button id="settingsTabCamera" class="settings-tab" type="button" role="tab"
+      aria-selected="false" aria-controls="settingsPanelCamera" tabindex="-1">Camera</button>
+    <button id="settingsTabInterface" class="settings-tab" type="button" role="tab"
+      aria-selected="false" aria-controls="settingsPanelInterface" tabindex="-1">Interface</button>
+  </div>
+  <div class="settings-panels">
+    <section id="settingsPanelDisplay" class="settings-panel" role="tabpanel"
+      aria-labelledby="settingsTabDisplay">
+      <label class="settings-wide" for="settingsDisplay">Display mode
+        <select id="settingsDisplay">
+          <option value="windowed">Windowed</option>
+          <option value="fullscreen">Fullscreen</option>
+        </select>
+      </label>
+      <p class="settings-help settings-wide">Fullscreen changes require a direct user action and can always be exited with Escape.</p>
+    </section>
+
+    <section id="settingsPanelGraphics" class="settings-panel" role="tabpanel"
+      aria-labelledby="settingsTabGraphics" hidden>
+      <label for="settingsQuality">Overall preset
+        <select id="settingsQuality">
+          <option value="low">Low</option>
+          <option value="medium">Medium</option>
+          <option value="high">High</option>
+        </select>
+      </label>
+      <div class="row"><span>FXAA anti-aliasing</span>
+        <label class="switch"><input id="settingsAntialiasing" type="checkbox" aria-label="FXAA anti-aliasing"><span class="track"></span><span class="thumb"></span></label>
+      </div>
+      <div class="slider-row">
+        <div class="row"><label for="settingsBloom">Bloom intensity</label><output class="value" id="settingsBloomVal"></output></div>
+        <input id="settingsBloom" type="range" min="0" max="3" step="0.05">
+      </div>
+      <div class="slider-row">
+        <div class="row"><label for="settingsDensity">Particle density</label><output class="value" id="settingsDensityVal"></output></div>
+        <input id="settingsDensity" type="range" min="0.3" max="2" step="0.1">
+      </div>
+      <div class="row"><span>Asteroid belt</span>
+        <label class="switch"><input id="settingsBelt" type="checkbox" aria-label="Asteroid belt visibility"><span class="track"></span><span class="thumb"></span></label>
+      </div>
+      <div class="row"><span>Nebulas &amp; dust</span>
+        <label class="switch"><input id="settingsNebulas" type="checkbox" aria-label="Nebulas and dust visibility"><span class="track"></span><span class="thumb"></span></label>
+      </div>
+    </section>
+
+    <section id="settingsPanelCamera" class="settings-panel" role="tabpanel"
+      aria-labelledby="settingsTabCamera" hidden>
+      <div class="slider-row">
+        <div class="row"><label for="settingsMouseSensitivity">Free-look sensitivity</label><output class="value" id="settingsMouseSensitivityVal"></output></div>
+        <input id="settingsMouseSensitivity" type="range" min="0.25" max="2" step="0.05">
+      </div>
+      <div class="slider-row">
+        <div class="row"><label for="settingsCameraSpeed">Free-flight speed</label><output class="value" id="settingsCameraSpeedVal"></output></div>
+        <input id="settingsCameraSpeed" type="range" min="0.25" max="3" step="0.05">
+      </div>
+      <div class="slider-row">
+        <div class="row"><label for="settingsRotationSpeed">Orbit rotation speed</label><output class="value" id="settingsRotationSpeedVal"></output></div>
+        <input id="settingsRotationSpeed" type="range" min="0.25" max="2" step="0.05">
+      </div>
+      <div class="slider-row">
+        <div class="row"><label for="settingsPanSpeed">Pan speed</label><output class="value" id="settingsPanSpeedVal"></output></div>
+        <input id="settingsPanSpeed" type="range" min="0.25" max="2" step="0.05">
+      </div>
+      <div class="slider-row">
+        <div class="row"><label for="settingsZoomSpeed">Zoom speed</label><output class="value" id="settingsZoomSpeedVal"></output></div>
+        <input id="settingsZoomSpeed" type="range" min="0.25" max="2" step="0.05">
+      </div>
+    </section>
+
+    <section id="settingsPanelInterface" class="settings-panel" role="tabpanel"
+      aria-labelledby="settingsTabInterface" hidden>
+      <div class="row"><span>Show HUD</span>
+        <label class="switch"><input id="settingsHUD" type="checkbox" aria-label="Show HUD"><span class="track"></span><span class="thumb"></span></label>
+      </div>
+      <div class="row"><span>Show timeline</span>
+        <label class="switch"><input id="settingsTimeline" type="checkbox" aria-label="Show timeline"><span class="track"></span><span class="thumb"></span></label>
+      </div>
+      <div class="row"><span>Show object labels</span>
+        <label class="switch"><input id="settingsLabels" type="checkbox" aria-label="Show object labels"><span class="track"></span><span class="thumb"></span></label>
+      </div>
+      <div class="row"><span>Show collision warnings</span>
+        <label class="switch"><input id="settingsWarnings" type="checkbox" aria-label="Show collision warnings"><span class="track"></span><span class="thumb"></span></label>
+      </div>
+    </section>
+  </div>
+</dialog>
+
+<iframe id="bigbangPreview" data-src="bigbang.html?preview=1"
+  title="Animated Big Bang preview" aria-hidden="true" tabindex="-1"></iframe>
+
 <!-- Title screen -->
 <div id="title">
+  <button id="titleBackBtn" class="mode-back" type="button">&larr; Back to Title Screen</button>
   <div class="title-card">
     <h1><span id="titleText">CosmicX</span></h1>
     <p class="tagline"><span id="taglineText">A live model of our cosmic neighborhood</span></p>
     <div class="stage-wrap">
       <div class="stage" id="stageStart">
-        <button id="enterBtn" class="menu-btn">Start</button>
+        <div class="title-actions">
+          <button id="enterBtn" class="menu-btn" type="button">Start</button>
+          <button id="settingsBtn" class="menu-btn" type="button"
+            aria-haspopup="dialog" aria-controls="settingsDialog">Settings</button>
+        </div>
       </div>
     </div>
   </div>
@@ -656,6 +858,7 @@
     </div>
   </div>
 </div>
+<p id="appCredit" class="app-credit">Developed by Mark Adrianne Salunga</p>
 
 <div id="fade"></div>
 
@@ -981,6 +1184,16 @@ const CONFIG = {
   showNebulas: true,
   particleDensity: 1,
   quality: 'high',
+  displayMode: 'fullscreen',
+  antialiasing: true,
+  mouseSensitivity: 1,
+  cameraSpeed: 1,
+  rotationSpeed: 1,
+  panSpeed: 1,
+  zoomSpeed: 1,
+  showHUD: true,
+  showTimeline: true,
+  showWarnings: true,
   // threshold low enough that the ACES-tone-mapped scene actually feeds the
   // pass — at 0.9 almost nothing crossed it and the strength slider looked dead
   bloom: { threshold: 0.6, strength: 1.15, radius: 0.55 },
@@ -988,6 +1201,72 @@ const CONFIG = {
   titleOrbit: { radius: 330, height: 120, rate: 0.05 },
   introDur: 3.5,
 };
+
+const SETTINGS_KEY = 'cosmicx.settings.v1';
+
+function sanitizeSettings(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
+  const clean = {};
+  if (value.displayMode === 'windowed' || value.displayMode === 'fullscreen') clean.displayMode = value.displayMode;
+  if (['low', 'medium', 'high'].includes(value.quality)) clean.quality = value.quality;
+
+  for (const [key, min, max] of [
+    ['bloomStrength', 0, 3],
+    ['particleDensity', 0.3, 2],
+    ['mouseSensitivity', 0.25, 2],
+    ['cameraSpeed', 0.25, 3],
+    ['rotationSpeed', 0.25, 2],
+    ['panSpeed', 0.25, 2],
+    ['zoomSpeed', 0.25, 2],
+  ]) {
+    if (typeof value[key] === 'number' && Number.isFinite(value[key])) {
+      clean[key] = Math.max(min, Math.min(max, value[key]));
+    }
+  }
+  for (const key of [
+    'antialiasing', 'showBelt', 'showNebulas', 'showHUD',
+    'showTimeline', 'showLabels', 'showWarnings',
+  ]) {
+    if (typeof value[key] === 'boolean') clean[key] = value[key];
+  }
+  return clean;
+}
+
+function loadSettings() {
+  try {
+    const clean = sanitizeSettings(JSON.parse(localStorage.getItem(SETTINGS_KEY)));
+    const { bloomStrength, ...flat } = clean;
+    Object.assign(CONFIG, flat);
+    if (bloomStrength !== undefined) CONFIG.bloom.strength = bloomStrength;
+  } catch {
+    // Storage can be blocked or contain malformed JSON; current defaults remain valid.
+  }
+}
+
+function saveSettings() {
+  try {
+    localStorage.setItem(SETTINGS_KEY, JSON.stringify({
+      displayMode: CONFIG.displayMode,
+      quality: CONFIG.quality,
+      antialiasing: CONFIG.antialiasing,
+      bloomStrength: CONFIG.bloom.strength,
+      particleDensity: CONFIG.particleDensity,
+      showBelt: CONFIG.showBelt,
+      showNebulas: CONFIG.showNebulas,
+      mouseSensitivity: CONFIG.mouseSensitivity,
+      cameraSpeed: CONFIG.cameraSpeed,
+      rotationSpeed: CONFIG.rotationSpeed,
+      panSpeed: CONFIG.panSpeed,
+      zoomSpeed: CONFIG.zoomSpeed,
+      showHUD: CONFIG.showHUD,
+      showTimeline: CONFIG.showTimeline,
+      showLabels: CONFIG.showLabels,
+      showWarnings: CONFIG.showWarnings,
+    }));
+  } catch {
+    // Settings still work for the current session when storage is unavailable.
+  }
+}
 
 const J2000_MS = Date.UTC(2000, 0, 1, 12);
 const SIM_DAY_LIMIT = 36525;
@@ -1490,6 +1769,9 @@ function initScene() {
   controls.dampingFactor = 0.06;
   controls.minDistance = 2;
   controls.maxDistance = 1500;
+  controls.rotateSpeed = CONFIG.rotationSpeed;
+  controls.panSpeed = CONFIG.panSpeed;
+  controls.zoomSpeed = CONFIG.zoomSpeed;
   controls.mouseButtons = { LEFT: THREE.MOUSE.ROTATE, MIDDLE: THREE.MOUSE.DOLLY, RIGHT: THREE.MOUSE.PAN };
   controls.screenSpacePanning = true;
 
@@ -1517,6 +1799,7 @@ function setupPostFX() {
   composer.addPass(lensingPass);
   composer.addPass(new OutputPass());
   fxaaPass = new ShaderPass(FXAAShader);
+  fxaaPass.enabled = CONFIG.antialiasing;
   composer.addPass(fxaaPass);
   setFXAASize();
 }
@@ -1540,6 +1823,7 @@ function applyQuality() {
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, q.pixelRatio));
   composer.setPixelRatio(Math.min(window.devicePixelRatio, q.pixelRatio));
   renderer.shadowMap.enabled = q.shadows;
+  fxaaPass.enabled = CONFIG.antialiasing;
   if (sunLight) sunLight.castShadow = q.shadows;
   scene.traverse(o => { if (o.material) o.material.needsUpdate = true; });
   setFXAASize();
@@ -3470,7 +3754,8 @@ function updateCameraMode(dt) {
   let radius = cameraTargetRadius(cameraState.target);
 
   if (cameraState.mode === 'free') {
-    const speed = (cameraState.keys.has('ShiftLeft') || cameraState.keys.has('ShiftRight') ? 75 : 32) * dt;
+    const speed = (cameraState.keys.has('ShiftLeft') || cameraState.keys.has('ShiftRight') ? 75 : 32)
+      * CONFIG.cameraSpeed * dt;
     const forward = camera.getWorldDirection(_v2);
     const right = _v3.crossVectors(forward, camera.up).normalize();
     if (cameraState.keys.has('KeyW')) camera.position.addScaledVector(forward, speed);
@@ -3566,8 +3851,12 @@ function setupPicking() {
     cameraState.lastX = e.clientX;
     cameraState.lastY = e.clientY;
     if (cameraState.mode === 'free') {
-      cameraState.yaw -= dx * 0.003;
-      cameraState.pitch = THREE.MathUtils.clamp(cameraState.pitch - dy * 0.003, -1.45, 1.45);
+      cameraState.yaw -= dx * 0.003 * CONFIG.mouseSensitivity;
+      cameraState.pitch = THREE.MathUtils.clamp(
+        cameraState.pitch - dy * 0.003 * CONFIG.mouseSensitivity,
+        -1.45,
+        1.45,
+      );
     }
   });
 }
@@ -3796,14 +4085,58 @@ function buildObjectSummary(record, galaxy = GALAXIES[currentGalaxy]) {
   };
 }
 
-// Immersive view: one body class hides every overlay; the dimmed toggle chip
-// (and the H key) restores the exact same interface — no other state touched.
-function toggleImmersiveUI() {
-  const hidden = document.body.classList.toggle('ui-hidden');
+function setHudVisible(visible, persist = true) {
+  CONFIG.showHUD = !!visible;
+  const hidden = !CONFIG.showHUD;
+  document.body.classList.toggle('ui-hidden', hidden);
   const btn = ui('uiToggle');
-  btn.textContent = hidden ? 'Show UI' : 'Hide UI';
-  btn.setAttribute('aria-pressed', String(hidden));
-  btn.title = hidden ? 'Show interface (H)' : 'Hide interface (H)';
+  if (btn) {
+    btn.textContent = hidden ? 'Show UI' : 'Hide UI';
+    btn.setAttribute('aria-pressed', String(hidden));
+    btn.title = hidden ? 'Show interface (H)' : 'Hide interface (H)';
+  }
+  if (persist) saveSettings();
+  syncSettingsControls();
+}
+
+// Immersive view: one body class hides every overlay; the dimmed toggle chip
+// (and the H key) restores the exact same interface.
+function toggleImmersiveUI() {
+  setHudVisible(!CONFIG.showHUD);
+}
+
+function setTimelineVisible(visible, persist = true) {
+  CONFIG.showTimeline = !!visible;
+  const bar = ui('bottomBar');
+  if (bar) {
+    bar.hidden = !CONFIG.showTimeline;
+    bar.classList.toggle('visible', CONFIG.showTimeline && !titleMode);
+  }
+  if (persist) saveSettings();
+  syncSettingsControls();
+}
+
+async function setDisplayMode(mode) {
+  const dialog = ui('settingsDialog');
+  if (dialog?.open) dialog.close();
+  CONFIG.displayMode = mode === 'fullscreen' ? 'fullscreen' : 'windowed';
+  try {
+    if (CONFIG.displayMode === 'fullscreen') {
+      if (!document.fullscreenElement && document.fullscreenEnabled) {
+        await document.documentElement.requestFullscreen();
+      } else if (!document.fullscreenEnabled) {
+        CONFIG.displayMode = 'windowed';
+        toast('Fullscreen unavailable — continuing in this window');
+      }
+    } else if (document.fullscreenElement) {
+      await document.exitFullscreen();
+    }
+  } catch {
+    CONFIG.displayMode = document.fullscreenElement ? 'fullscreen' : 'windowed';
+    toast('Fullscreen unavailable — continuing in this window');
+  }
+  saveSettings();
+  syncSettingsControls();
 }
 
 function armToastDismiss(item) {
@@ -4116,7 +4449,7 @@ function clearImpactWarnings() {
 
 function updateImpactWarnings() {
   const container = ui('warnings');
-  if (titleMode || !CONFIG.collisions) {
+  if (titleMode || !CONFIG.collisions || !CONFIG.showWarnings) {
     clearImpactWarnings();
     return [];
   }
@@ -4496,6 +4829,148 @@ function refreshGalaxyInfo() {
     el.classList.toggle('active', i === currentGalaxy));
 }
 
+function applyCameraSettings() {
+  if (!controls) return;
+  controls.rotateSpeed = CONFIG.rotationSpeed;
+  controls.panSpeed = CONFIG.panSpeed;
+  controls.zoomSpeed = CONFIG.zoomSpeed;
+}
+
+function syncSettingsControls() {
+  if (!ui('settingsDialog')) return;
+  const values = {
+    settingsDisplay: CONFIG.displayMode,
+    settingsQuality: CONFIG.quality,
+    settingsBloom: CONFIG.bloom.strength,
+    settingsDensity: CONFIG.particleDensity,
+    settingsMouseSensitivity: CONFIG.mouseSensitivity,
+    settingsCameraSpeed: CONFIG.cameraSpeed,
+    settingsRotationSpeed: CONFIG.rotationSpeed,
+    settingsPanSpeed: CONFIG.panSpeed,
+    settingsZoomSpeed: CONFIG.zoomSpeed,
+  };
+  for (const [id, value] of Object.entries(values)) {
+    const el = ui(id);
+    el.value = String(value);
+    if (el.type === 'range') paintRangeFill(el);
+  }
+  for (const [id, value] of Object.entries({
+    settingsAntialiasing: CONFIG.antialiasing,
+    settingsBelt: CONFIG.showBelt,
+    settingsNebulas: CONFIG.showNebulas,
+    settingsHUD: CONFIG.showHUD,
+    settingsTimeline: CONFIG.showTimeline,
+    settingsLabels: CONFIG.showLabels,
+    settingsWarnings: CONFIG.showWarnings,
+  })) {
+    ui(id).checked = value;
+  }
+  ui('settingsBloomVal').textContent = CONFIG.bloom.strength.toFixed(2);
+  ui('settingsDensityVal').textContent = CONFIG.particleDensity.toFixed(1) + '×';
+  for (const [id, value] of [
+    ['settingsMouseSensitivityVal', CONFIG.mouseSensitivity],
+    ['settingsCameraSpeedVal', CONFIG.cameraSpeed],
+    ['settingsRotationSpeedVal', CONFIG.rotationSpeed],
+    ['settingsPanSpeedVal', CONFIG.panSpeed],
+    ['settingsZoomSpeedVal', CONFIG.zoomSpeed],
+  ]) {
+    ui(id).textContent = value.toFixed(2) + '×';
+  }
+}
+
+function setupSettings() {
+  const dialog = ui('settingsDialog');
+  const tabs = [...dialog.querySelectorAll('[role="tab"]')];
+  const panels = [...dialog.querySelectorAll('[role="tabpanel"]')];
+  const activateTab = tab => {
+    for (const candidate of tabs) {
+      const active = candidate === tab;
+      candidate.setAttribute('aria-selected', String(active));
+      candidate.tabIndex = active ? 0 : -1;
+    }
+    for (const panel of panels) panel.hidden = panel.id !== tab.getAttribute('aria-controls');
+  };
+  tabs.forEach((tab, index) => {
+    tab.addEventListener('click', () => activateTab(tab));
+    tab.addEventListener('keydown', event => {
+      if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+      event.preventDefault();
+      const next = event.key === 'Home' ? 0
+        : event.key === 'End' ? tabs.length - 1
+          : (index + (event.key === 'ArrowRight' ? 1 : -1) + tabs.length) % tabs.length;
+      activateTab(tabs[next]);
+      tabs[next].focus();
+    });
+  });
+
+  ui('settingsBtn').addEventListener('click', () => {
+    syncSettingsControls();
+    dialog.showModal();
+  });
+  ui('settingsClose').addEventListener('click', () => dialog.close());
+
+  const bridge = (settingsId, controlId, eventName) => {
+    const setting = ui(settingsId), control = ui(controlId);
+    setting.addEventListener(eventName, () => {
+      if (setting.type === 'checkbox') control.checked = setting.checked;
+      else control.value = setting.value;
+      control.dispatchEvent(new Event(eventName, { bubbles: true }));
+    });
+    control.addEventListener(eventName, () => {
+      syncSettingsControls();
+      saveSettings();
+    });
+  };
+  bridge('settingsQuality', 'quality', 'change');
+  bridge('settingsBloom', 'bloomI', 'input');
+  bridge('settingsDensity', 'density', 'input');
+  bridge('settingsBelt', 'belt-toggle', 'change');
+  bridge('settingsNebulas', 'nebula-toggle', 'change');
+  bridge('settingsLabels', 'labels-toggle', 'change');
+  ui('settingsDensity').addEventListener('change', () =>
+    ui('density').dispatchEvent(new Event('change', { bubbles: true })));
+
+  ui('settingsDisplay').addEventListener('change', () => setDisplayMode(ui('settingsDisplay').value));
+  ui('settingsAntialiasing').addEventListener('change', () => {
+    CONFIG.antialiasing = ui('settingsAntialiasing').checked;
+    applyQuality();
+    saveSettings();
+    syncSettingsControls();
+  });
+  for (const [id, key] of [
+    ['settingsMouseSensitivity', 'mouseSensitivity'],
+    ['settingsCameraSpeed', 'cameraSpeed'],
+    ['settingsRotationSpeed', 'rotationSpeed'],
+    ['settingsPanSpeed', 'panSpeed'],
+    ['settingsZoomSpeed', 'zoomSpeed'],
+  ]) {
+    ui(id).addEventListener('input', () => {
+      CONFIG[key] = Number(ui(id).value);
+      applyCameraSettings();
+      saveSettings();
+      syncSettingsControls();
+    });
+  }
+  ui('settingsHUD').addEventListener('change', () => setHudVisible(ui('settingsHUD').checked));
+  ui('settingsTimeline').addEventListener('change', () => setTimelineVisible(ui('settingsTimeline').checked));
+  ui('settingsWarnings').addEventListener('change', () => {
+    CONFIG.showWarnings = ui('settingsWarnings').checked;
+    updateImpactWarnings();
+    saveSettings();
+    syncSettingsControls();
+  });
+  document.addEventListener('fullscreenchange', () => {
+    CONFIG.displayMode = document.fullscreenElement ? 'fullscreen' : 'windowed';
+    saveSettings();
+    syncSettingsControls();
+  });
+
+  applyCameraSettings();
+  setHudVisible(CONFIG.showHUD, false);
+  setTimelineVisible(CONFIG.showTimeline, false);
+  syncSettingsControls();
+}
+
 function setupUI() {
   // tabs
   const tabs = [...document.querySelectorAll('.tab')];
@@ -4550,7 +5025,11 @@ function setupUI() {
   bindSlider('size', 'sizeVal', CONFIG, 'planetScale', v => v.toFixed(2) + '×', applyPlanetScale);
   bindSlider('dist', 'distVal', CONFIG, 'distanceScale', v => v.toFixed(0), applyDistanceScale);
   bindSwitch('trails', CONFIG, 'showTrails', v => trailsGroup.visible = v);
-  bindSwitch('labels-toggle', CONFIG, 'showLabels', v => labelRenderer.domElement.style.display = v ? '' : 'none');
+  bindSwitch('labels-toggle', CONFIG, 'showLabels', v => {
+    labelRenderer.domElement.style.display = v ? '' : 'none';
+    saveSettings();
+    syncSettingsControls();
+  });
   bindSwitch('collisions', CONFIG, 'collisions', v => {
     updateImpactWarnings();
     toast('Collision physics ' + (v ? 'enabled' : 'disabled'));
@@ -4663,11 +5142,33 @@ function setupUI() {
 
   // FX
   ui('quality').value = CONFIG.quality;
-  ui('quality').addEventListener('change', () => { CONFIG.quality = ui('quality').value; applyQuality(); });
-  bindSlider('bloomI', 'bloomVal', CONFIG.bloom, 'strength', v => v.toFixed(2), () => bloomPass.strength = CONFIG.bloom.strength);
-  bindSlider('density', 'densityVal', CONFIG, 'particleDensity', v => v.toFixed(1) + '×');
-  bindSwitch('belt-toggle', CONFIG, 'showBelt', v => { if (belt) belt.visible = v; });
-  bindSwitch('nebula-toggle', CONFIG, 'showNebulas', v => { if (nebulaGroup) nebulaGroup.visible = v; });
+  ui('quality').addEventListener('change', () => {
+    CONFIG.quality = ui('quality').value;
+    applyQuality();
+    rebuildSimulationAt(simDays, 'quality');
+    saveSettings();
+    syncSettingsControls();
+  });
+  bindSlider('bloomI', 'bloomVal', CONFIG.bloom, 'strength', v => v.toFixed(2), () => {
+    bloomPass.strength = CONFIG.bloom.strength;
+    saveSettings();
+    syncSettingsControls();
+  });
+  bindSlider('density', 'densityVal', CONFIG, 'particleDensity', v => v.toFixed(1) + '×', () => {
+    saveSettings();
+    syncSettingsControls();
+  });
+  ui('density').addEventListener('change', () => rebuildSimulationAt(simDays, 'particle-density'));
+  bindSwitch('belt-toggle', CONFIG, 'showBelt', v => {
+    if (belt) belt.visible = v;
+    saveSettings();
+    syncSettingsControls();
+  });
+  bindSwitch('nebula-toggle', CONFIG, 'showNebulas', v => {
+    if (nebulaGroup) nebulaGroup.visible = v;
+    saveSettings();
+    syncSettingsControls();
+  });
   ui('resetSim').addEventListener('click', () => {
     // restore pristine defs (eccentricity nudges etc. mutate them)
     GALAXIES[currentGalaxy].planets.forEach(def => { if (def._e0 !== undefined) def.e = def._e0; });
@@ -4835,7 +5336,7 @@ function setupFullscreenNotice() {
     notice.close();
     // enter fullscreen right off the acknowledging click; Escape still
     // declines quietly and the launch buttons keep their own guard
-    if (!document.fullscreenElement && document.fullscreenEnabled) {
+    if (CONFIG.displayMode === 'fullscreen' && !document.fullscreenElement && document.fullscreenEnabled) {
       document.documentElement.requestFullscreen()
         .catch(() => toast('Fullscreen unavailable — continuing in this window'));
     }
@@ -4844,120 +5345,24 @@ function setupFullscreenNotice() {
     if (event.key === 'Escape') {
       event.preventDefault();
       notice.close();
+      CONFIG.displayMode = 'windowed';
+      saveSettings();
+      syncSettingsControls();
     }
   });
+  if (CONFIG.displayMode !== 'fullscreen') return;
   notice.showModal();
 }
 
-// Big Bang hover preview: a camera-parented veil + mini formed-galaxy field
-// (bigbang.html's title-scene look) that crossfades over the live solar
-// system while "Before the Stars" is hovered.
-let previewMix = 0, previewTarget = 0, previewTime = 0;
-let previewGroup = null, previewVeil = null, previewField = null, previewStars = null, previewGlow = null;
-
-function buildTitlePreview() {
-  if (previewGroup) return;
-  previewGroup = new THREE.Group();
-  previewGroup.visible = false;
-
-  previewVeil = new THREE.Mesh(
-    new THREE.PlaneGeometry(2, 2),
-    new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0, depthTest: false, depthWrite: false }),
-  );
-  previewVeil.position.z = -1;
-  previewVeil.scale.setScalar(8);   // oversized well past any fov/aspect
-  previewVeil.renderOrder = 900;
-  previewGroup.add(previewVeil);
-
-  // a handful of small spirals ahead of the camera in the bigbang.html galaxy
-  // palette: cool blue-white cores, faint redshift toward the far rim, warm
-  // nucleus glows — the formed-galaxies era parked behind that page's title
-  previewField = new THREE.Group();
-  const CLUSTERS = 5, perCluster = 300, n = CLUSTERS * perCluster;
-  const pos = new Float32Array(n * 3), col = new Float32Array(n * 3), phase = new Float32Array(n);
-  previewGlow = new THREE.SpriteMaterial({
-    map: createGlowTexture('rgba(255,240,220,1)', 'rgba(255,205,150,0.35)', 'rgba(255,170,110,0.06)'),
-    color: new THREE.Color(1.15, 1.05, 0.95),
-    transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthTest: false, depthWrite: false,
-  });
-  const center = new THREE.Vector3(), q = new THREE.Quaternion(), euler = new THREE.Euler(), p = new THREE.Vector3();
-  for (let c = 0; c < CLUSTERS; c++) {
-    center.set((Math.random() * 2 - 1) * 16, (Math.random() * 2 - 1) * 9, -22 - Math.random() * 24);
-    const R = 2.5 + Math.random() * 2.5;
-    q.setFromEuler(euler.set(Math.random() * Math.PI, Math.random() * Math.PI, 0));
-    const redshift = ((-center.z - 22) / 24) * 0.35;
-    for (let i = 0; i < perCluster; i++) {
-      const k = c * perCluster + i;
-      const r = R * Math.sqrt(Math.random());
-      const arm = (i % 2) * Math.PI + (r / R) * 2.6 + (Math.random() - 0.5) * 0.7;
-      p.set(Math.cos(arm) * r, (Math.random() - 0.5) * R * 0.16, Math.sin(arm) * r)
-        .applyQuaternion(q).add(center);
-      pos[k * 3] = p.x; pos[k * 3 + 1] = p.y; pos[k * 3 + 2] = p.z;
-      const core = 1 - r / R;
-      let cr = 0.7 + (0.55 + core * 0.45 - 0.7) * core;
-      let cg = 0.72 + (0.65 + core * 0.27 - 0.72) * core;
-      let cb = 0.85 + (1.0 - core * 0.2 - 0.85) * core;
-      cr += (1.0 - cr) * redshift; cg += (0.62 - cg) * redshift; cb += (0.45 - cb) * redshift;
-      col[k * 3] = cr; col[k * 3 + 1] = cg; col[k * 3 + 2] = cb;
-      phase[k] = Math.random() * Math.PI * 2;
-    }
-    const glow = new THREE.Sprite(previewGlow);
-    glow.position.copy(center);
-    glow.scale.setScalar(R * 2.6);
-    glow.renderOrder = 902;
-    previewField.add(glow);
-  }
-  const geo = new THREE.BufferGeometry();
-  geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
-  geo.setAttribute('aCol', new THREE.BufferAttribute(col, 3));
-  geo.setAttribute('aPhase', new THREE.BufferAttribute(phase, 1));
-  const fieldMat = new THREE.ShaderMaterial({
-    uniforms: { uMap: { value: createPointSpriteTexture() }, uTime: { value: 0 }, uA: { value: 0 } },
-    vertexShader: `
-      attribute float aPhase; attribute vec3 aCol; uniform float uTime;
-      varying float vTw; varying vec3 vCol;
-      void main() {
-        vTw = 0.5 + 0.5 * sin(uTime * 1.5 + aPhase);
-        vCol = aCol;
-        vec4 mv = modelViewMatrix * vec4(position, 1.0);
-        gl_PointSize = (1.1 + 1.3 * vTw) * (120.0 / max(-mv.z, 1.0));
-        gl_Position = projectionMatrix * mv;
-      }`,
-    fragmentShader: `
-      uniform sampler2D uMap; uniform float uA;
-      varying float vTw; varying vec3 vCol;
-      void main() {
-        float a = texture2D(uMap, gl_PointCoord).a;
-        gl_FragColor = vec4(vCol, a * uA * (0.55 + 0.45 * vTw));
-      }`,
-    transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, depthTest: false,
-  });
-  previewStars = new THREE.Points(geo, fieldMat);
-  previewStars.renderOrder = 901;
-  previewField.add(previewStars);
-  previewGroup.add(previewField);
-
-  camera.add(previewGroup);
+// Lazy live preview reuses the actual Big Bang title scene.
+function showBigBangPreview() {
+  const preview = document.getElementById('bigbangPreview');
+  if (!preview.src) preview.src = preview.dataset.src;
+  preview.classList.add('active');
 }
 
-function hideTitlePreview() {
-  previewTarget = 0;
-  previewMix = 0;
-  if (previewGroup) previewGroup.visible = false;
-}
-
-function updateTitlePreview(dt) {
-  if (!previewGroup) return;
-  previewTime += dt;
-  previewMix += (previewTarget - previewMix) * Math.min(1, dt * 3);
-  const on = previewMix > 0.01;
-  previewGroup.visible = on;
-  if (!on) return;
-  previewVeil.material.opacity = previewMix * 0.98;
-  previewStars.material.uniforms.uA.value = previewMix;
-  previewStars.material.uniforms.uTime.value = previewTime;
-  previewField.rotation.y = previewTime * 0.03;
-  previewGlow.opacity = previewMix * 0.9;   // shared material -> every nucleus
+function hideBigBangPreview() {
+  document.getElementById('bigbangPreview').classList.remove('active');
 }
 
 // Sandbox -> menu without a reload: dip through #fade (z-15, under the
@@ -4970,7 +5375,6 @@ function returnToMenu() {
   const fade = document.getElementById('fade');
   fade.classList.add('on');
   setTimeout(() => {
-    if (document.body.classList.contains('ui-hidden')) toggleImmersiveUI();
     selectRecord(null);
     closeInfoPanel();
     titleMode = true;          // before setCameraMode: it latches controls.enabled = !titleMode && …
@@ -4986,10 +5390,10 @@ function returnToMenu() {
 
 // Idle title backdrop tour across every galaxy environment, reusing the
 // switchGalaxy fade-dip. Self-gates outside the title (and while the Big
-// Bang preview veil is up or any other fade owns the screen).
+// Bang preview is up or any other fade owns the screen).
 function cycleTitleGalaxy() {
   const fade = document.getElementById('fade');
-  if (!titleMode || launching || previewTarget > 0 || fade.classList.contains('on')) return;
+  if (!titleMode || launching || document.getElementById('bigbangPreview').classList.contains('active') || fade.classList.contains('on')) return;
   fade.classList.add('on');
   setTimeout(() => {
     if (titleMode && !launching) buildGalaxy((currentGalaxy + 1) % GALAXIES.length);
@@ -5000,13 +5404,16 @@ function cycleTitleGalaxy() {
 function setupTitleScreen() {
   controls.enabled = false;
   labelRenderer.domElement.style.visibility = 'hidden';
+  const title = document.getElementById('title');
+  if (location.hash === '#modes') title.classList.add('modes');
   // stage 1 -> stage 2: reveal the mode cards, keep title/tagline in place
   document.getElementById('enterBtn').addEventListener('click', () => {
-    document.getElementById('title').classList.add('modes');
-  }, { once: true });
+    title.classList.add('modes');
+    history.replaceState(null, '', '#modes');
+  });
   document.getElementById('startBtn').addEventListener('click', () => {
     if (!titleMode || launching) return;   // re-armed after every menu return
-    if (!document.fullscreenElement) {
+    if (CONFIG.displayMode === 'fullscreen' && !document.fullscreenElement) {
       if (document.fullscreenEnabled) {
         document.documentElement.requestFullscreen()
           .catch(() => toast('Fullscreen unavailable — continuing in this window'));
@@ -5014,7 +5421,7 @@ function setupTitleScreen() {
         toast('Fullscreen unavailable — continuing in this window');
       }
     }
-    hideTitlePreview();
+    hideBigBangPreview();
     const launch = () => {
       titleMode = false;
       const titleEl = document.getElementById('title');
@@ -5071,6 +5478,13 @@ function setupTitleScreen() {
     swapText(taglineText, tag);
   };
   const DEFAULT_HERO = ['CosmicX', 'A live model of our cosmic neighborhood'];
+  document.getElementById('titleBackBtn').addEventListener('click', () => {
+    hideBigBangPreview();
+    setMenuTitle(...DEFAULT_HERO);
+    title.classList.remove('modes');
+    history.replaceState(null, '', location.pathname + location.search);
+    document.getElementById('enterBtn').focus();
+  });
   for (const [id, title, tag] of [
     ['startBtn', 'Become the Creator', 'An immersive journey through the planets and beyond.'],
     ['bigbangBtn', 'Before the Stars', 'A Journey from the Big Bang to the Modern Universe'],
@@ -5083,10 +5497,10 @@ function setupTitleScreen() {
   grid.addEventListener('focusout', (event) => {
     if (!grid.contains(event.relatedTarget)) setMenuTitle(...DEFAULT_HERO);
   });
-  // hovering the Big Bang card crossfades the live scene toward the singularity
+  // hover and keyboard focus reveal the actual Big Bang title scene
   const bb = document.getElementById('bigbangBtn');
-  for (const on of ['mouseenter', 'focus']) bb.addEventListener(on, () => { buildTitlePreview(); previewTarget = 1; });
-  for (const off of ['mouseleave', 'blur']) bb.addEventListener(off, () => { previewTarget = 0; });
+  for (const on of ['mouseenter', 'focus']) bb.addEventListener(on, showBigBangPreview);
+  for (const off of ['mouseleave', 'blur']) bb.addEventListener(off, hideBigBangPreview);
   // sandbox -> menu without a reload; the href stays as a no-JS fallback
   document.getElementById('simBackLink').addEventListener('click', event => {
     event.preventDefault();
@@ -5406,7 +5820,6 @@ function update(dt) {
     camera.lookAt(titleAim);
     camera.fov = 55 + Math.sin(P * 0.7) * 4;
     camera.updateProjectionMatrix();
-    updateTitlePreview(dt);
   }
 
   if (camTargetsDirty) refreshCameraTargets();
@@ -5422,7 +5835,13 @@ function update(dt) {
 function runSelfCheck() {
   const checks = {};
   const requiredDomIds = [
-    'startBtn', 'ui', 'planetGrid', 'infoPanel', 'ipBody', 'warnings',
+    'startBtn', 'settingsBtn', 'settingsDialog', 'settingsClose',
+    'settingsTabDisplay', 'settingsTabGraphics', 'settingsTabCamera', 'settingsTabInterface',
+    'settingsDisplay', 'settingsQuality', 'settingsAntialiasing', 'settingsBloom',
+    'settingsDensity', 'settingsBelt', 'settingsNebulas', 'settingsMouseSensitivity',
+    'settingsCameraSpeed', 'settingsRotationSpeed', 'settingsPanSpeed', 'settingsZoomSpeed',
+    'settingsHUD', 'settingsTimeline', 'settingsLabels', 'settingsWarnings',
+    'ui', 'planetGrid', 'infoPanel', 'ipBody', 'warnings',
     'warningAnnouncer', 'toasts', 'spawnComet', 'spawnNEA', 'launchBtn',
     'meteorBtn', 'camGrid', 'camTarget', 'teleZoom', 'bottomBar',
     'barUtcDate', 'barUtcTime', 'barDay', 'barMonth', 'barYear', 'barElapsed',
@@ -5433,6 +5852,12 @@ function runSelfCheck() {
     'timelineScrubber', 'timelineDetails', 'timelineDetailsPanel',
   ];
   checks.dom = requiredDomIds.every(id => !!document.getElementById(id));
+  checks.settings = CONFIG.displayMode === 'windowed' || CONFIG.displayMode === 'fullscreen';
+  checks.settings &&= ['low', 'medium', 'high'].includes(CONFIG.quality)
+    && CONFIG.bloom.strength >= 0 && CONFIG.bloom.strength <= 3
+    && CONFIG.particleDensity >= 0.3 && CONFIG.particleDensity <= 2
+    && CONFIG.mouseSensitivity >= 0.25 && CONFIG.mouseSensitivity <= 2
+    && CONFIG.cameraSpeed >= 0.25 && CONFIG.cameraSpeed <= 3;
 
   const cameraModeControls = [...document.querySelectorAll('.cam-btn')]
     .map(button => button.dataset.cam);
@@ -5517,11 +5942,13 @@ function runSelfCheck() {
    BOOT
    ================================================================ */
 
+loadSettings();
 initScene();
 setupPostFX();
 buildGalaxy(0);
 setupPicking();
 setupUI();
+setupSettings();
 setupFullscreenNotice();
 setupTitleScreen();
 labelRenderer.domElement.style.display = CONFIG.showLabels ? '' : 'none';

@@ -4,9 +4,15 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Before the Stars — CosmicX</title>
+<link rel="icon" href="data:,">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&display=swap" rel="stylesheet">
+<script>
+  if (new URLSearchParams(location.search).has('preview')) {
+    document.documentElement.classList.add('preview');
+  }
+</script>
 <style>
   /* first rule on purpose: no white flash while arriving from index.html */
   html, body { margin: 0; height: 100%; overflow: hidden; background: #000; }
@@ -180,6 +186,37 @@
     margin: 0 0 32px; color: var(--muted); font-size: 14px; letter-spacing: .04em;
     text-shadow: 0 1px 8px rgba(0, 0, 0, 0.8);
   }
+  #bbEnding {
+    --ending-x: 50vw; --ending-y: 44vh; --ending-scale: .9;
+    position: fixed; left: 0; top: 0; z-index: 17;
+    width: min(860px, calc(100vw - 40px)); padding: 20px;
+    color: var(--fg); text-align: center; pointer-events: none;
+    opacity: 0; filter: blur(8px);
+    transform: translate3d(var(--ending-x), var(--ending-y), 0)
+      translate(-50%, -50%) scale(var(--ending-scale));
+    transition: opacity 1.8s ease, filter 1.8s ease, transform .12s linear;
+    will-change: transform, opacity;
+  }
+  #bbEnding.visible { opacity: 1; filter: blur(0); pointer-events: auto; }
+  #bbEnding h2 {
+    margin: 0 0 16px; color: #fff;
+    font: 700 clamp(30px, 5.5vw, 72px)/1.05 var(--font-display);
+    letter-spacing: .02em;
+    text-shadow: 0 2px 18px rgba(0, 0, 0, .9), 0 0 34px rgba(138, 184, 255, .24);
+  }
+  #bbEnding p {
+    max-width: 720px; margin: 0 auto; color: var(--muted);
+    font: 500 clamp(14px, 1.7vw, 22px)/1.55 var(--font); letter-spacing: .04em;
+    text-shadow: 0 2px 14px rgba(0, 0, 0, .95);
+  }
+  .ending-actions {
+    display: flex; justify-content: center; flex-wrap: wrap; gap: 12px;
+    margin-top: 28px;
+  }
+  .ending-actions .btn {
+    width: auto; min-width: 150px; padding: 12px 24px; text-decoration: none;
+    font: 700 12px var(--font-display); letter-spacing: .14em; text-transform: uppercase;
+  }
   #beginBtn {
     display: inline-block; width: auto; padding: 16px 64px;
     color: #fff; font: 700 15px var(--font-display);
@@ -223,6 +260,9 @@
   body.ui-hidden :is(#bbBar, #bbPanel, #epochCard, #backLink, #toasts, #cinebars) {
     visibility: hidden !important;
   }
+  .preview :is(#bbTitle, #backLink, #bbUiToggle, #bbEnding, #fade, #cinebars, #toasts, #bbPanel, #epochCard, #bbBar) {
+    display: none !important;
+  }
 
   /* ---- epoch panel (top right) ---- */
   #bbPanel {
@@ -257,6 +297,7 @@
     transition: opacity .6s ease, translate .6s ease;
   }
   #epochCard.visible { opacity: 1; translate: 0 0; pointer-events: auto; }
+  body.ending :is(#bbPanel, #epochCard) { opacity: .08; pointer-events: none; }
   #epochCard b { display: block; font: 700 17px var(--font-display); letter-spacing: .08em; text-transform: uppercase; margin-bottom: 6px; }
   #epochCard .chips { display: flex; gap: 6px; margin-bottom: 8px; }
   #epochCard.swap .card-inner { animation: card-in .45s ease; }
@@ -298,11 +339,13 @@
     #epochCard { bottom: 110px; }
     #bbBar { left: 8px; right: 8px; grid-template-columns: 1fr auto; }
     .bb-track { grid-column: 1 / -1; }
+    #bbEnding { width: calc(100vw - 24px); padding: 12px; }
   }
   @media (prefers-reduced-motion: reduce) {
     #bbTitle, #bbBar, #bbPanel, #epochCard, .btn { transition: none; }
     #bbTitle::before, #bbTitle::after { animation: none; }
     .title-card h1 { animation: none; }
+    #bbEnding { transition: none; }
   }
 </style>
 <script type="importmap">
@@ -316,7 +359,7 @@
 </head>
 <body>
 
-<a id="backLink" href="index.html">&larr; Modes</a>
+<a id="backLink" href="index.html#modes">&larr; Modes</a>
 <button id="bbUiToggle" class="ui-eye" aria-pressed="false" title="Hide interface (H)">Hide UI</button>
 
 <!-- Title overlay -->
@@ -325,6 +368,14 @@
     <h1>Before the Stars</h1>
     <p class="tagline">From Singularity to Infinity: A Journey from the Big Bang to the Modern Universe</p>
     <button id="beginBtn" class="btn">Begin</button>
+  </div>
+</div>
+<div id="bbEnding" role="status" aria-live="polite" aria-hidden="true" inert>
+  <h2>The Beginning Was Never the End</h2>
+  <p>The night sky is more than a collection of stars—it is the story of where you came from.</p>
+  <div class="ending-actions">
+    <button id="bbReplayBtn" class="btn" type="button">Play Again</button>
+    <a id="bbEndingBack" class="btn" href="index.html#modes">Back to Menu</a>
   </div>
 </div>
 
@@ -964,6 +1015,28 @@ const T = { u: 0, speedIdx: 2, dir: 1, playing: false, cinematic: true };
 const uTween = { active: false, from: 0, to: 0, t: 0, dur: 0.8 };
 let expansionRate = 1;
 let shimmerT = 0;           // cosmetic clock for shader shimmer + camera drift
+const endingAnchor = new THREE.Vector3(600, 14, 0);
+const endingScreen = new THREE.Vector3();
+
+function setEndingVisible(visible) {
+  const ending = document.getElementById('bbEnding');
+  ending.classList.toggle('visible', !!visible);
+  ending.setAttribute('aria-hidden', String(!visible));
+  ending.inert = !visible;
+  document.body.classList.toggle('ending', !!visible);
+}
+
+function updateEndingTracking() {
+  const ending = document.getElementById('bbEnding');
+  if (!ending.classList.contains('visible')) return;
+  endingScreen.copy(endingAnchor).project(camera);
+  const x = THREE.MathUtils.clamp((endingScreen.x * .5 + .5) * innerWidth, innerWidth * .15, innerWidth * .85);
+  const y = THREE.MathUtils.clamp((-endingScreen.y * .5 + .5) * innerHeight, innerHeight * .25, innerHeight * .68);
+  const scale = THREE.MathUtils.clamp(350 / Math.max(camera.position.distanceTo(endingAnchor), 1), .78, 1.12);
+  ending.style.setProperty('--ending-x', x.toFixed(2) + 'px');
+  ending.style.setProperty('--ending-y', y.toFixed(2) + 'px');
+  ending.style.setProperty('--ending-scale', scale.toFixed(3));
+}
 
 // Title screen: park the timeline on the formed-galaxies era and drift the
 // camera through it until Begin is pressed (then dip to black and start at 0).
@@ -997,6 +1070,7 @@ function stepTimeline(dt) {
   T.u = THREE.MathUtils.clamp(next, 0, 1);
   if ((T.u >= 1 && T.dir > 0) || (T.u <= 0 && T.dir < 0)) {
     setPlaying(false);
+    setEndingVisible(T.dir > 0);
     toast(T.dir > 0 ? 'The universe fades to black — journey complete' : 'Back before the beginning');
   }
 }
@@ -1028,6 +1102,20 @@ function fadeDip(mid) {
     if (mid) mid();
     fade.classList.remove('on');
   }, 360);
+}
+
+function replayTimeline() {
+  setEndingVisible(false);
+  fadeDip(() => {
+    uTween.active = false;
+    T.dir = 1;
+    T.u = 0;
+    setCinematic(true);
+    glide.active = false;
+    controls.enabled = false;
+    applyEpoch(0);
+    setPlaying(true);
+  });
 }
 
 /* ================================================================
@@ -1911,6 +1999,7 @@ function applyEpoch(u) {
   const env = envAt(u);
   const idx = epochAt(u);
   const e = EPOCHS[idx];
+  if (u < 1) setEndingVisible(false);
 
   // user-adjustable expansion: scales post-inflation growth + redshift
   const postInf = smooth(u, EPOCHS[3].u0, EPOCHS[3].u0 + 0.05);
@@ -2075,6 +2164,7 @@ function setupBBUI() {
     }
     setPlaying(!T.playing);
   });
+  document.getElementById('bbReplayBtn').addEventListener('click', replayTimeline);
   document.getElementById('bbReverse').addEventListener('click', () => {
     T.dir = -1;
     if (T.u <= 0) T.u = 1;
@@ -2169,6 +2259,7 @@ function update(dt) {
   applyEpoch(T.u);
   updateGlide(dt);
   if (!T.cinematic) controls.update();
+  updateEndingTracking();
 }
 
 function animate() {

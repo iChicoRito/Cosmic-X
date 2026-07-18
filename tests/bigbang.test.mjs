@@ -49,6 +49,10 @@ test('keeps the inline Big Bang module syntactically valid', () => {
   assert.doesNotThrow(() => new Function(source));
 });
 
+test('declares an inline favicon so browser verification stays free of 404 errors', () => {
+  assert.match(html, /<link\s+rel=["']icon["']\s+href=["']data:,["']\s*\/?>/i);
+});
+
 test('covers all eleven cosmic epochs in chronological order', () => {
   const ids = [
     'singularity', 'planck', 'inflation', 'particles', 'atoms',
@@ -91,6 +95,70 @@ test('offers an immersive Hide UI toggle', () => {
   startTagById('bbUiToggle');
   assert.match(html, /body\.ui-hidden/);
   assert.ok(functionSource('toggleImmersiveUI'));
+});
+
+test('keeps the creator credit exclusive to the CosmicX title screen', () => {
+  assert.doesNotMatch(html, /id=["']bbCredit["']/);
+  assert.doesNotMatch(html, /Developed by Mark Adrianne Salunga/);
+});
+
+test('reveals a camera-tracked ending only after forward completion', () => {
+  assertAttributes(startTagById('bbEnding'), {
+    role: /status/,
+    'aria-live': /polite/,
+    'aria-hidden': /true/,
+  });
+  assert.match(html, /The Beginning Was Never the End/);
+  assert.match(html, /The night sky is more than a collection of stars—it is the story of where you came from\./);
+
+  const styles = html.slice(html.indexOf('<style>'), html.indexOf('</style>'));
+  const ending = /#bbEnding\s*\{[^}]*\}/s.exec(styles)?.[0] || '';
+  assert.match(ending, /pointer-events:\s*none/);
+  assert.match(styles, /#bbEnding\.visible\s*\{[^}]*opacity:\s*1/);
+  assert.match(styles, /body\.ending[\s\S]*#bbPanel/);
+  assert.match(styles, /body\.ending[\s\S]*#epochCard/);
+  assert.match(styles, /prefers-reduced-motion[\s\S]*#bbEnding/);
+
+  assert.match(functionSource('setEndingVisible'), /document\.body\.classList\.toggle\(\s*['"]ending['"]/);
+  const tracking = functionSource('updateEndingTracking');
+  assert.match(tracking, /\.project\(\s*camera\s*\)/);
+  assert.match(tracking, /--ending-x/);
+  assert.match(tracking, /--ending-y/);
+  assert.match(tracking, /--ending-scale/);
+  assert.match(functionSource('stepTimeline'), /setEndingVisible\(\s*T\.dir\s*>\s*0\s*\)/);
+  assert.match(functionSource('applyEpoch'), /u\s*<\s*1[\s\S]*setEndingVisible\(\s*false\s*\)/);
+  assert.match(functionSource('update'), /applyEpoch\(\s*T\.u\s*\)[\s\S]*updateEndingTracking\(\)/);
+});
+
+test('offers accessible replay and mode-selection actions beneath the ending quote', () => {
+  assertAttributes(startTagById('bbEnding'), { inert: null });
+  assertAttributes(startTagById('bbReplayBtn'), { type: /button/ });
+  assertAttributes(startTagById('bbEndingBack'), { href: /index\.html#modes/ });
+  assert.match(html, /Play Again/);
+  assert.match(html, /Back to Menu/);
+  assert.ok(
+    html.indexOf('id="bbReplayBtn"') > html.indexOf('The night sky is more than a collection of stars'),
+    'Ending actions must follow the quote',
+  );
+
+  const replay = functionSource('replayTimeline');
+  assert.match(replay, /fadeDip\(/);
+  assert.match(replay, /setEndingVisible\(\s*false\s*\)/);
+  assert.match(replay, /uTween\.active\s*=\s*false/);
+  assert.match(replay, /T\.dir\s*=\s*1/);
+  assert.match(replay, /T\.u\s*=\s*0/);
+  assert.match(replay, /setCinematic\(\s*true\s*\)/);
+  assert.match(replay, /setPlaying\(\s*true\s*\)/);
+  assert.match(functionSource('setupBBUI'), /bbReplayBtn[\s\S]*replayTimeline/);
+  assert.match(functionSource('setEndingVisible'), /ending\.inert\s*=\s*!visible/);
+});
+
+test('supports a chrome-free live title preview and routes Modes to mode selection', () => {
+  assert.match(html, /URLSearchParams\(\s*location\.search\s*\)[\s\S]*has\(\s*['"]preview['"]\s*\)/);
+  assert.match(html, /document\.documentElement\.classList\.add\(\s*['"]preview['"]\s*\)/);
+  const styles = html.slice(html.indexOf('<style>'), html.indexOf('</style>'));
+  assert.match(styles, /\.preview\s+:is\([^)]*#bbTitle[^)]*#backLink[^)]*\)\s*\{[^}]*display:\s*none/s);
+  assertAttributes(startTagById('backLink'), { href: /index\.html#modes/ });
 });
 
 test('drifts through the formed galaxies behind the title, then rewinds to t = 0 on Begin', () => {
