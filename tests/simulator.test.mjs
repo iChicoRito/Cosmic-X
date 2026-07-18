@@ -563,3 +563,72 @@ test('extends the runtime self-check to timeline, selection, bar, and finite met
     finiteMetrics: /checks\.(?:finiteMetrics|summaryMetrics)\s*=\s*(?!true\b|false\b)[^;]+;/,
   });
 });
+
+test('offers the Big Bang mode from the title screen', () => {
+  const title = elementSourceById('title');
+  assert.ok(/id=["']startBtn["']/.test(title), 'Missing startBtn in #title');
+  assert.ok(/id=["']bigbangBtn["']/.test(title), 'Missing bigbangBtn in #title');
+  assert.match(title, /Become the Creator/);
+  assert.match(title, /Before the Stars/);
+  const titleScreen = section('function setupTitleScreen() {', 'const clock = new THREE.Clock();');
+  assertContracts(titleScreen, {
+    navTarget: /bigbang\.html/,
+    fadeBeforeNav: /fade['"]\)[\s\S]*?classList\.add\(\s*['"]on['"]\s*\)[\s\S]*?bigbang\.html/,
+  });
+});
+
+test('fully wipes spawned objects and their recorded events on simulation reset', () => {
+  const handler = section("ui('resetSim')", "GALAXIES.forEach(g =>");
+  assertContracts(handler, {
+    wipe: /clearSpawned\(\)/,
+    rewind: /seekSimulationTime\(SESSION_START_MS/,
+  });
+  assert.ok(handler.indexOf('clearSpawned()') < handler.indexOf('seekSimulationTime'),
+    'clearSpawned must run before the rebuilding seek so the log cannot resurrect spawns');
+});
+
+test('keeps the hidden title screen out of the tab order so nothing navigates by accident', () => {
+  const styles = section('<style>', '</style>');
+  assert.match(styles, /#title\.hidden\s*\{[^}]*visibility:\s*hidden/);
+  const titleScreen = section('function setupTitleScreen() {', 'const clock = new THREE.Clock();');
+  assert.match(titleScreen, /\.inert = true/);
+});
+
+test('isolates the menu title crossfade from the glow loop and reverts at the grid edge', () => {
+  assert.ok(/id=["']titleText["']/.test(elementSourceById('title')), 'Missing titleText span');
+  const styles = section('<style>', '</style>');
+  assert.match(styles, /#titleText\.swap/);
+  const titleScreen = section('function setupTitleScreen() {', 'const clock = new THREE.Clock();');
+  assert.match(titleScreen, /focusout/);
+});
+
+test('offers an immersive Hide UI toggle', () => {
+  assert.ok(startTagById('uiToggle'));
+  const styles = section('<style>', '</style>');
+  assert.match(styles, /body\.ui-hidden/);
+  assert.ok(functionSource('toggleImmersiveUI'));
+});
+
+test('places the other galaxies in the sky as discoverable camera targets', () => {
+  const build = functionSource('buildDistantGalaxies');
+  assert.match(build, /pickTargets\.push/);
+  assert.match(build, /makeLabel\(/);
+  assert.match(functionSource('refreshCameraTargets'), /distantGalaxies/);
+  assert.match(functionSource('buildObjectSummary'), /isGalaxy/);
+  assert.match(functionSource('isCameraTargetLive'), /isGalaxy/);
+});
+
+test('stages the title into Start and mode selection', () => {
+  const title = elementSourceById('title');
+  assert.ok(/id=["']enterBtn["']/.test(title), 'Missing enterBtn in #title');
+  assert.match(title, /stage-wrap/);
+  assert.match(title, />\s*Start\s*</);
+  const styles = section('<style>', '</style>');
+  assert.match(styles, /#title\.modes/);
+  const titleScreen = section('function setupTitleScreen() {', 'const clock = new THREE.Clock();');
+  assertContracts(titleScreen, {
+    stageToggle: /enterBtn['"]\)[\s\S]*?classList\.add\(\s*['"]modes['"]\s*\)/,
+    hoverTitle: /mouseenter/,
+    keyboardTitle: /focus/,
+  });
+});
