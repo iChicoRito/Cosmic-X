@@ -102,9 +102,17 @@ test('gives every simulation toggle an accessible name', () => {
   assert.match(planetGrid, /setAttribute\(\s*['"]aria-label['"]\s*,\s*['"]Toggle ['"]\s*\+\s*rec\.def\.name/);
 });
 
+test('uses balanced black glass panels while preserving backdrop blur', () => {
+  const styles = section('<style>', '</style>');
+  const glass = /\.glass\s*\{[^}]*\}/s.exec(styles)?.[0] || '';
+  assert.match(styles, /--glass-bg:\s*rgba\(\s*0\s*,\s*0\s*,\s*0\s*,\s*0\.60\s*\)\s*;/);
+  assert.match(glass, /background:\s*var\(--glass-bg\)/);
+  assert.match(glass, /-webkit-backdrop-filter:\s*blur\(/);
+  assert.match(glass, /backdrop-filter:\s*blur\(/);
+});
+
 test('keeps only switches, sliders, progress bars, and badges rounded', () => {
   const styles = section('<style>', '</style>');
-  assert.match(styles, /--glass-bg:\s*rgba\(\s*255\s*,\s*255\s*,\s*255\s*,\s*0\.06\s*\)\s*;/);
   assert.doesNotMatch(styles, /--radius-(?:lg|md)\s*:/);
   assertContracts(styles, {
     switchTrack: /\.switch \.track\s*\{[^}]*border-radius:\s*999px/,

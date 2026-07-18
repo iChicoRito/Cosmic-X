@@ -165,6 +165,15 @@ test('adds visible title-scene activity with a reduced-motion fallback', () => {
   );
 });
 
+test('uses balanced black glass panels while preserving backdrop blur', () => {
+  const styles = html.slice(html.indexOf('<style>'), html.indexOf('</style>'));
+  const glass = /\.glass\s*\{[^}]*\}/s.exec(styles)?.[0] || '';
+  assert.match(styles, /--glass-bg:\s*rgba\(\s*0\s*,\s*0\s*,\s*0\s*,\s*0\.60\s*\)\s*;/);
+  assert.match(glass, /background:\s*var\(--glass-bg\)/);
+  assert.match(glass, /-webkit-backdrop-filter:\s*blur\(/);
+  assert.match(glass, /backdrop-filter:\s*blur\(/);
+});
+
 test('matches the sandbox glass treatment on the Modes link', () => {
   const rule = /#backLink\s*\{[^}]*\}/s.exec(html)?.[0] || '';
   assert.match(rule, /background:\s*var\(--glass-bg\)/);
