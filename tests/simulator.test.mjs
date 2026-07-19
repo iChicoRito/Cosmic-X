@@ -691,9 +691,13 @@ test('shows the normal-weight creator credit only on the initial title screen', 
   });
 
   const styles = section('<style>', '</style>');
+  const actionGroup = /\.title-actions\s*\{[^}]*\}/s.exec(styles)?.[0] || '';
   const actions = /\.title-actions \.menu-btn\s*\{[^}]*\}/s.exec(styles)?.[0] || '';
   const credit = /\.app-credit\s*\{[^}]*\}/s.exec(styles)?.[0] || '';
-  assert.match(actions, /background:\s*rgba\(\s*0\s*,\s*0\s*,\s*0\s*,\s*\.15\s*\)/);
+  assert.match(actionGroup, /width:\s*min\(\s*220px\s*,\s*68vw\s*\)/);
+  assert.match(actions, /padding:\s*13px 36px/);
+  assert.match(actions, /font:\s*700 13px/);
+  assert.match(actions, /background:\s*rgba\(\s*0\s*,\s*0\s*,\s*0\s*,\s*\.10\s*\)/);
   assert.match(actions, /-webkit-backdrop-filter:\s*blur\(/);
   assert.match(actions, /backdrop-filter:\s*blur\(/);
   assert.match(credit, /position:\s*fixed/);
@@ -733,6 +737,9 @@ test('returns from mode selection to a reusable title screen', () => {
   assert.match(back, /position:\s*fixed/);
   assert.match(back, /top:\s*16px/);
   assert.match(back, /right:\s*16px/);
+  assert.match(back, /height:\s*28px/);
+  assert.match(back, /padding:\s*0 10px/);
+  assert.match(back, /background:\s*rgba\(\s*0\s*,\s*0\s*,\s*0\s*,\s*\.10\s*\)/);
   assert.doesNotMatch(back, /\bleft:/);
 });
 
@@ -921,10 +928,37 @@ test('adds one non-overlapping Sandbox menu link and positions the existing Hide
   assert.match(styles, /#simBackLink\s*\{[^}]*position:\s*fixed[^}]*top:\s*16px[^}]*left:\s*16px/);
   assert.match(styles, /#infoPanel\s*\{[^}]*top:\s*58px/);
   assert.match(styles, /\.ui-eye\s*\{[^}]*position:\s*fixed[^}]*top:\s*16px[^}]*right:\s*344px/);
-  assert.match(styles, /@media\s*\(max-width:\s*440px\)[\s\S]*?\.ui-eye\s*\{[^}]*top:\s*12px[^}]*right:\s*12px[^}]*\}[\s\S]*?#ui\s*\{[^}]*top:\s*52px/);
+  assert.match(styles, /@media\s*\(max-width:\s*720px\)[\s\S]*?#ui\s*\{[^}]*top:\s*52px/);
+  assert.match(styles, /@media\s*\(max-width:\s*440px\)[\s\S]*?\.ui-eye\s*\{[^}]*top:\s*12px[^}]*right:\s*12px/);
   assert.match(styles, /body\.ui-hidden[^}]*#simBackLink/);
   const titleScreen = section('function setupTitleScreen() {', 'const clock = new THREE.Clock();');
   assert.match(titleScreen, /simBackLink['"]\)\.classList\.add\(\s*['"]visible['"]\s*\)/);
+});
+
+test('starts Solar mobile panels collapsed and expands the controller to the available width', () => {
+  assertAttributes(startTagById('collapseBtn'), {
+    'aria-expanded': /true/,
+    'aria-label': /Collapse panel/,
+  });
+
+  const setup = functionSource('setupUI');
+  const controllerToggle = listenerWindow(setup, 'collapseBtn', 'click');
+  assert.match(controllerToggle, /classList\.toggle\(\s*['"]collapsed['"]\s*\)/);
+  assert.match(controllerToggle, /setAttribute\(\s*['"]aria-expanded['"]/);
+  assert.match(controllerToggle, /aria-label/);
+  assert.match(controllerToggle, /\.title\s*=/);
+  assert.match(setup, /window\.matchMedia\(\s*['"]\(max-width:\s*720px\)['"]\s*\)/);
+  assert.match(setup, /mobileTimeline\.matches[\s\S]*collapseBtn['"]\)\.click\(\)[\s\S]*barCollapse['"]\)\.click\(\)/);
+
+  const styles = section('<style>', '</style>');
+  assert.match(
+    styles,
+    /@media\s*\(max-width:\s*720px\)[\s\S]*?#ui:not\(\.collapsed\)\s*\{[^}]*left:\s*8px[^}]*right:\s*8px[^}]*width:\s*auto/,
+  );
+  assert.match(
+    styles,
+    /@media\s*\(max-width:\s*720px\)[\s\S]*?#simBackLink,\s*\.ui-eye\s*\{[^}]*height:\s*28px[^}]*background:\s*rgba\(\s*0\s*,\s*0\s*,\s*0\s*,\s*\.10\s*\)/,
+  );
 });
 
 test('enters fullscreen straight from the Got it acknowledgement', () => {

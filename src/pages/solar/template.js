@@ -151,7 +151,8 @@ export function solarTemplate() {
 <div id="ui" class="glass">
   <header>
     <h2>Controls</h2>
-    <button id="collapseBtn" class="icon-btn" title="Collapse panel" aria-label="Collapse panel">&#8722;</button>
+    <button id="collapseBtn" class="icon-btn" title="Collapse panel"
+      aria-label="Collapse panel" aria-expanded="true">&#8722;</button>
   </header>
   <div class="tabs">
     <button class="tab active" data-tab="world">World</button>

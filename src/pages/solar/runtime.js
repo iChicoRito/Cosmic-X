@@ -3649,7 +3649,11 @@ function setupUI() {
 
   ui('collapseBtn').addEventListener('click', () => {
     const collapsed = ui('ui').classList.toggle('collapsed');
+    const label = collapsed ? 'Expand panel' : 'Collapse panel';
     ui('collapseBtn').innerHTML = collapsed ? '+' : '&#8722;';
+    ui('collapseBtn').setAttribute('aria-expanded', String(!collapsed));
+    ui('collapseBtn').setAttribute('aria-label', label);
+    ui('collapseBtn').title = label;
   });
   ui('uiToggle').addEventListener('click', toggleImmersiveUI);
   ui('ipClose').addEventListener('click', exitInfoPanel);
@@ -3715,6 +3719,10 @@ function setupUI() {
     ui('barCollapse').title = label;
     ui('barCollapse').innerHTML = collapsed ? '&#9652;' : '&#9662;';
   });
+  if (mobileTimeline.matches) {
+    ui('collapseBtn').click();
+    ui('barCollapse').click();
+  }
   scope.listen(mobileTimeline, 'change', syncTimelineDetails);
   syncTimelineDetails();
 

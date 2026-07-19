@@ -194,18 +194,27 @@
     text-shadow: 0 2px 14px rgba(0, 0, 0, .95);
   }
   .ending-actions {
-    display: flex; justify-content: center; flex-wrap: wrap; gap: 12px;
+    display: flex; flex-direction: column; align-items: center; gap: 12px;
     margin-top: 28px;
   }
   .ending-actions .btn {
-    width: auto; min-width: 150px; padding: 12px 24px; text-decoration: none;
+    box-sizing: border-box; width: min(180px, 100%); padding: 12px 24px; text-decoration: none;
     font: 700 12px var(--font-display); letter-spacing: .14em; text-transform: uppercase;
   }
+  #bbReplayBtn {
+    background: rgba(0, 0, 0, .10);
+    -webkit-backdrop-filter: blur(14px) saturate(140%);
+    backdrop-filter: blur(14px) saturate(140%);
+  }
+  #bbEndingBack { background: transparent; border: 0; color: var(--muted); }
+  #bbEndingBack:hover, #bbEndingBack:focus-visible { background: transparent; color: var(--fg); }
   #beginBtn {
-    display: inline-block; width: auto; padding: 16px 64px;
-    color: #fff; font: 700 15px var(--font-display);
+    display: inline-block; width: min(220px, 68vw); padding: 13px 36px;
+    color: #fff; font: 700 13px var(--font-display);
     letter-spacing: .22em; text-transform: uppercase; text-indent: .22em;
-    background: rgba(28, 29, 32, 0.92);
+    background: rgba(0, 0, 0, .10);
+    -webkit-backdrop-filter: blur(14px) saturate(140%);
+    backdrop-filter: blur(14px) saturate(140%);
     border-color: rgba(255, 255, 255, 0.28);
     transition: background .25s, color .25s, border-color .25s;
   }
@@ -320,10 +329,19 @@
 
   @media (max-width: 720px) {
     #bbPanel { display: none; }
-    #epochCard { bottom: 110px; }
-    #bbBar { left: 8px; right: 8px; grid-template-columns: 1fr auto; }
-    .bb-track { grid-column: 1 / -1; }
+    .ui-eye {
+      left: auto; right: 8px; height: 28px; padding: 0 10px;
+      background: rgba(0, 0, 0, .10); font-size: 10.5px;
+    }
+    #epochCard { left: 8px; right: 8px; bottom: 110px; width: auto; box-sizing: border-box; }
+    #bbBar { left: 8px; right: 8px; grid-template-columns: minmax(0, 1fr) auto; }
+    .bb-now { min-width: 0; }
+    .bb-controls { min-width: 0; flex-wrap: wrap; justify-content: flex-end; }
+    .bb-track { grid-column: 1 / -1; min-width: 0; }
     #bbEnding { width: calc(100vw - 24px); padding: 12px; }
+  }
+  @media (max-width: 360px) {
+    #epochCard { bottom: 150px; }
   }
   @media (prefers-reduced-motion: reduce) {
     #bbTitle, #bbBar, #bbPanel, #epochCard, .btn { transition: none; }

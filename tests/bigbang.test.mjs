@@ -164,6 +164,18 @@ test('offers accessible replay and mode-selection actions beneath the ending quo
   assert.match(replay, /setPlaying\(\s*true\s*\)/);
   assert.match(functionSource('setupBBUI'), /bbReplayBtn[\s\S]*replayTimeline/);
   assert.match(functionSource('setEndingVisible'), /ending\.inert\s*=\s*!visible/);
+
+  const styles = html.slice(html.indexOf('<style>'), html.indexOf('</style>'));
+  const actions = /\.ending-actions\s*\{[^}]*\}/s.exec(styles)?.[0] || '';
+  const replayButton = /#bbReplayBtn\s*\{[^}]*\}/s.exec(styles)?.[0] || '';
+  const backButton = /#bbEndingBack\s*\{[^}]*\}/s.exec(styles)?.[0] || '';
+  assert.match(actions, /flex-direction:\s*column/);
+  assert.match(actions, /align-items:\s*center/);
+  assert.match(/\.ending-actions \.btn\s*\{[^}]*\}/s.exec(styles)?.[0] || '', /box-sizing:\s*border-box/);
+  assert.match(replayButton, /background:\s*rgba\(\s*0\s*,\s*0\s*,\s*0\s*,\s*\.10\s*\)/);
+  assert.match(replayButton, /backdrop-filter:\s*blur\(/);
+  assert.match(backButton, /background:\s*transparent/);
+  assert.match(backButton, /border:\s*0/);
 });
 
 test('supports a chrome-free live title preview and routes Modes to mode selection', () => {
@@ -227,7 +239,11 @@ test('requests fullscreen from Begin with the same non-blocking fallback as the 
 test('matches the landing Start button treatment while retaining Begin', () => {
   assert.match(html, /id=["']beginBtn["'][^>]*>\s*Begin\s*</i);
   const base = /#beginBtn\s*\{[^}]*\}/s.exec(html)?.[0] || '';
-  assert.match(base, /background:\s*rgba\(\s*28\s*,\s*29\s*,\s*32\s*,\s*0\.92\s*\)/);
+  assert.match(base, /width:\s*min\(\s*220px\s*,\s*68vw\s*\)/);
+  assert.match(base, /padding:\s*13px 36px/);
+  assert.match(base, /font:\s*700 13px/);
+  assert.match(base, /background:\s*rgba\(\s*0\s*,\s*0\s*,\s*0\s*,\s*\.10\s*\)/);
+  assert.match(base, /backdrop-filter:\s*blur\(/);
   assert.match(base, /border-color:\s*rgba\(\s*255\s*,\s*255\s*,\s*255\s*,\s*0\.28\s*\)/);
   const active = /#beginBtn:hover,\s*#beginBtn:focus-visible\s*\{[^}]*\}/s.exec(html)?.[0] || '';
   assert.match(active, /background:\s*#fff/);
@@ -261,4 +277,27 @@ test('matches the sandbox glass treatment on the Modes link', () => {
   assert.match(rule, /border:\s*1px solid var\(--glass-border\)/);
   assert.match(rule, /backdrop-filter/);
   assert.match(rule, /text-transform:\s*uppercase/);
+});
+
+test('aligns and contains the Big Bang mobile timeline controls', () => {
+  const styles = html.slice(html.indexOf('<style>'), html.indexOf('</style>'));
+  assert.match(
+    styles,
+    /@media\s*\(max-width:\s*720px\)[\s\S]*?#epochCard\s*\{[^}]*left:\s*8px[^}]*right:\s*8px[^}]*width:\s*auto/,
+  );
+  assert.match(
+    styles,
+    /@media\s*\(max-width:\s*720px\)[\s\S]*?#bbBar\s*\{[^}]*left:\s*8px[^}]*right:\s*8px[^}]*grid-template-columns:\s*minmax\(\s*0\s*,\s*1fr\s*\)\s+auto/,
+  );
+  assert.match(styles, /@media\s*\(max-width:\s*720px\)[\s\S]*?\.bb-now\s*\{[^}]*min-width:\s*0/);
+  assert.match(styles, /@media\s*\(max-width:\s*720px\)[\s\S]*?\.bb-controls\s*\{[^}]*flex-wrap:\s*wrap/);
+  assert.match(styles, /@media\s*\(max-width:\s*720px\)[\s\S]*?\.bb-track\s*\{[^}]*min-width:\s*0/);
+  assert.match(
+    styles,
+    /@media\s*\(max-width:\s*720px\)[\s\S]*?\.ui-eye\s*\{[^}]*left:\s*auto[^}]*right:\s*8px[^}]*height:\s*28px[^}]*background:\s*rgba\(\s*0\s*,\s*0\s*,\s*0\s*,\s*\.10\s*\)/,
+  );
+  assert.match(
+    styles,
+    /@media\s*\(max-width:\s*360px\)[\s\S]*?#epochCard\s*\{[^}]*bottom:\s*150px/,
+  );
 });
