@@ -3,10 +3,9 @@
   "configurations": [
     {
       "name": "solar",
-      "runtimeExecutable": "npx",
-      "runtimeArgs": ["-y", "http-server", "-c-1"],
-      "port": 8123,
-      "autoPort": true
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev", "--", "--port", "8123", "--strictPort"],
+      "port": 8123
     }
   ]
 }
