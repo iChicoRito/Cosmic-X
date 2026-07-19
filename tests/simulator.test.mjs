@@ -1054,6 +1054,46 @@ test('registers Triangulum as a fourth deterministic explorable galaxy', () => {
   assert.match(functionSource('buildGalaxy'), /g\.landmarks/);
 });
 
+test('opens zodiac dossiers from stars and lines without moving the camera', () => {
+  const constellations = functionSource('createConstellations');
+  assertContracts(constellations, {
+    record: /isConstellation\s*:\s*true/,
+    catalogData: /sign\s*:\s*p\.sign/,
+    starTarget: /pickTargets\.push\(\s*stars\s*\)/,
+    lineTarget: /pickTargets\.push\(\s*links\s*\)/,
+    starRecord: /byMesh\.set\(\s*stars\s*,\s*record\s*\)/,
+    lineRecord: /byMesh\.set\(\s*links\s*,\s*record\s*\)/,
+  });
+
+  assert.match(runtime, /raycaster\.params\.Points\.threshold\s*=\s*8/);
+  assert.match(runtime, /raycaster\.params\.Line\.threshold\s*=\s*8/);
+
+  const picking = functionSource('setupPicking');
+  assert.match(
+    picking,
+    /if\s*\(\s*!record\.isConstellation\s*\)\s*\{[\s\S]*?cameraState\.target\s*=\s*record[\s\S]*?\}/,
+  );
+  assert.match(picking, /openInfoPanel\(\s*record\s*\)/);
+
+  const typeLabel = functionSource('bodyTypeLabel');
+  assert.match(typeLabel, /record\.isConstellation[\s\S]*?Zodiac constellation/);
+
+  const dossier = functionSource('openInfoPanel');
+  assert.match(dossier, /record\.isConstellation/);
+  for (const field of ['symbol', 'element', 'dates', 'brightest', 'lore']) {
+    assert.match(dossier, new RegExp(`sign\\.${field}`), `Dossier uses zodiac ${field}`);
+  }
+
+  const summary = functionSource('buildObjectSummary');
+  assert.match(summary, /record\.isConstellation[\s\S]*?Traditional zodiac reference/);
+  assert.match(summary, /showMetrics\s*:\s*!record\?\.isConstellation/);
+  assert.match(functionSource('refreshBottomInfoBar'), /summary\.showMetrics/);
+  assert.match(
+    functionSource('runSelfCheck'),
+    /selectedRecord\?\.isConstellation[\s\S]*?registeredSet\.has\(\s*selectedRecord\s*\)/,
+  );
+});
+
 test('wires the customizable laser tab into the control panel', () => {
   assert.match(html, /<button class="tab" data-tab="laser">Laser<\/button>/);
   const page = section('<div class="tab-page" data-page="laser">', '<div class="tab-page" data-page="cam">');

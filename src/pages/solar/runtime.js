@@ -824,7 +824,7 @@ function createLandmarks(g) {
 
 // Zodiac overlay: each galaxy build has a 50% chance of scattering 2-4 random
 // zodiac constellations across the far sky (r=1400, just inside the distant-
-// galaxy imposters at 1500). Purely decorative — no UI, no pick records.
+// galaxy imposters at 1500). Stars and lines share one dossier record.
 function createConstellations() {
   const picks = pickZodiac();
   if (!picks) return;
@@ -860,6 +860,21 @@ function createConstellations() {
     );
     const label = makeLabel(p.sign.name, 0);
     label.position.copy(center).multiplyScalar(1400).addScaledVector(up, -1.3 * p.scale);
+    const anchor = new THREE.Object3D();
+    anchor.position.copy(center).multiplyScalar(1400);
+    const record = {
+      name: p.sign.name,
+      isConstellation: true,
+      sign: p.sign,
+      anchor,
+      visible: true,
+      alive: true,
+    };
+    pickTargets.push(stars);
+    pickTargets.push(links);
+    byMesh.set(stars, record);
+    byMesh.set(links, record);
+    galaxyGroup.add(anchor);
     galaxyGroup.add(stars);
     galaxyGroup.add(links);
     galaxyGroup.add(label);
@@ -2205,6 +2220,8 @@ function switchGalaxy(index) {
    ================================================================ */
 
 const raycaster = new THREE.Raycaster();
+raycaster.params.Points.threshold = 8;
+raycaster.params.Line.threshold = 8;
 const pointerNDC = new THREE.Vector2();
 const flight = { active: false, t: 0, dur: 1.4, focus: null, fromPos: new THREE.Vector3(), fromTgt: new THREE.Vector3() };
 let focused = null;
@@ -2514,11 +2531,13 @@ function setupPicking() {
       .find(h => { const r = byMesh.get(h.object); return r && r.visible; });
     if (hit) {
       const record = byMesh.get(hit.object);
-      cameraState.target = record;
       selectRecord(record);
-      syncCameraTargetSelect();
-      if (cameraState.mode === 'orbit') flyTo(record);
-      else if (cameraState.mode !== 'free') setCameraMode(cameraState.mode);
+      if (!record.isConstellation) {
+        cameraState.target = record;
+        syncCameraTargetSelect();
+        if (cameraState.mode === 'orbit') flyTo(record);
+        else if (cameraState.mode !== 'free') setCameraMode(cameraState.mode);
+      }
       openInfoPanel(record);
     }
   });
@@ -2639,6 +2658,11 @@ function buildObjectSummary(record, galaxy = GALAXIES[currentGalaxy]) {
     parentDistance = 0;
     velocity = 0;
     orbitalSpeed = 0;
+  } else if (record.isConstellation) {
+    source = 'Traditional zodiac reference';
+    status = record.sign.element + ' · ' + record.sign.dates;
+    velocity = 0;
+    orbitalSpeed = 0;
   } else if (record.isSun) {
     const profile = STAR_SUMMARY_PROFILES[galaxy.starProfile];
     mass = profile.massSolar * 1.98847e30;
@@ -2757,6 +2781,7 @@ function buildObjectSummary(record, galaxy = GALAXIES[currentGalaxy]) {
     type: record ? bodyTypeLabel(record) : galaxy.type,
     source,
     status,
+    showMetrics: !record?.isConstellation,
     metrics: SUMMARY_METRIC_KEYS.reduce((result, key) => {
       result[key] = metrics[key] || finiteMetric(0, '', 'modeled estimate');
       return result;
@@ -2861,6 +2886,7 @@ function bodyDisplayName(record) {
 }
 
 function bodyTypeLabel(record) {
+  if (record.isConstellation) return 'Zodiac constellation';
   if (record.isGalaxy) return 'Galaxy';
   if (record.isSun) return 'Star';
   if (record.isBH) return 'Black hole';
@@ -2909,7 +2935,15 @@ function openInfoPanel(record) {
   ui('ipType').textContent = bodyTypeLabel(record);
   const body = ui('ipBody');
 
-  if (record.def && !record.isMoon) {
+  if (record.isConstellation) {
+    const { sign } = record;
+    body.innerHTML = '<div class="stat-grid">'
+      + stat('Symbol', sign.symbol)
+      + stat('Element', sign.element)
+      + stat('Traditional dates', sign.dates)
+      + stat('Brightest star', sign.brightest)
+      + '</div><div class="note">' + sign.lore + '</div>';
+  } else if (record.def && !record.isMoon) {
     const def = record.def;
     const facts = factsFor(def, !!sunRec);
     const modeled = !Object.prototype.hasOwnProperty.call(PLANET_FACTS, def.name);
@@ -3411,17 +3445,21 @@ function refreshBottomInfoBar(force = false) {
     mass: 'Mass', radius: 'Radius', gravity: 'Gravity', orbitalPeriod: 'Period',
     coordinates: 'Coordinates',
   };
-  ui('barSelectedMetric').innerHTML = SUMMARY_METRIC_KEYS.map(key => {
-    const metric = summary.metrics[key];
-    const value = Math.abs(metric.value) >= 1e6
-      ? metric.value.toExponential(3)
-      : Number(metric.value.toFixed(3)).toLocaleString();
-    const coordinates = key === 'coordinates'
-      ? ' [' + metric.x.toFixed(2) + ', ' + metric.y.toFixed(2) + ', ' + metric.z.toFixed(2) + ']'
-      : '';
-    return '<span><small>' + labels[key] + '</small><b>' + value + coordinates + ' ' + metric.unit
-      + '</b>' + (metric.qualifier ? '<em>' + metric.qualifier + '</em>' : '') + '</span>';
-  }).join('');
+  const metricHost = ui('barSelectedMetric');
+  metricHost.hidden = !summary.showMetrics;
+  metricHost.innerHTML = summary.showMetrics
+    ? SUMMARY_METRIC_KEYS.map(key => {
+        const metric = summary.metrics[key];
+        const value = Math.abs(metric.value) >= 1e6
+          ? metric.value.toExponential(3)
+          : Number(metric.value.toFixed(3)).toLocaleString();
+        const coordinates = key === 'coordinates'
+          ? ' [' + metric.x.toFixed(2) + ', ' + metric.y.toFixed(2) + ', ' + metric.z.toFixed(2) + ']'
+          : '';
+        return '<span><small>' + labels[key] + '</small><b>' + value + coordinates + ' ' + metric.unit
+          + '</b>' + (metric.qualifier ? '<em>' + metric.qualifier + '</em>' : '') + '</span>';
+      }).join('')
+    : '';
   const scrubber = ui('timelineScrubber');
   scrubber.value = String(simDays);
   paintRangeFill(scrubber);
@@ -4610,7 +4648,10 @@ function runSelfCheck() {
     && ui('timelineDetails').getAttribute('aria-controls') === 'timelineDetailsPanel'
     && !!getComputedStyle(document.documentElement).getPropertyValue('--bottom-bar-offset').trim();
   const stableSelection = selectionKeyFor(selectedRecord);
-  checks.selection = selectedRecord === null || stableSelection !== null || dynBodies.includes(selectedRecord);
+  checks.selection = selectedRecord === null
+    || stableSelection !== null
+    || dynBodies.includes(selectedRecord)
+    || (selectedRecord?.isConstellation && registeredSet.has(selectedRecord));
   const summary = buildObjectSummary(selectedRecord, GALAXIES[currentGalaxy]);
   checks.summaryMetrics = SUMMARY_METRIC_KEYS.every(key => {
     const metric = summary.metrics[key];
