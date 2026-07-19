@@ -58,3 +58,104 @@ body,
   color: inherit;
   cursor: pointer;
 }
+
+/* Minimal now-playing player — top center, no container, low opacity */
+#musicPlayer {
+  position: fixed;
+  top: 14px;
+  left: 50%;
+  translate: -50%;
+  z-index: 9000;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: #e7eaf1;
+  font-family: "Space Grotesk", "Segoe UI", system-ui, sans-serif;
+  opacity: 0.35;
+  transition: opacity 200ms ease;
+  pointer-events: none;
+  user-select: none;
+}
+
+#musicPlayer:hover {
+  opacity: 0.75;
+}
+
+#musicPlayer .mp-disk {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background:
+    radial-gradient(circle at 50% 50%, transparent 3px, rgba(255, 255, 255, 0.55) 3.5px, transparent 4px),
+    repeating-radial-gradient(circle at 50% 50%, #2a2d36 0 1.6px, #14161c 1.6px 3.2px);
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.12) inset;
+  flex: none;
+}
+
+#musicPlayer[data-playing="true"] .mp-disk {
+  animation: mp-spin 3.4s linear infinite;
+}
+
+#musicPlayer .mp-hole {
+  display: block;
+  width: 4px;
+  height: 4px;
+  margin: 9px auto;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.85);
+}
+
+#musicPlayer .mp-title {
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  letter-spacing: 0.02em;
+}
+
+#musicPlayer .mp-controls {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+#musicPlayer .mp-btn {
+  pointer-events: auto;
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  opacity: 0.85;
+}
+
+#musicPlayer .mp-btn:hover {
+  background: rgba(255, 255, 255, 0.12);
+  opacity: 1;
+}
+
+#musicPlayer .mp-btn svg {
+  width: 16px;
+  height: 16px;
+  fill: currentColor;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #musicPlayer[data-playing="true"] .mp-disk {
+    animation: none;
+  }
+}
+
+@keyframes mp-spin {
+  to { rotate: 360deg; }
+}
+
+.preview #musicPlayer {
+  display: none;
+}

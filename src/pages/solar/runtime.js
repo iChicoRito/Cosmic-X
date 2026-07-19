@@ -3702,6 +3702,9 @@ function setupSettings() {
   setHudVisible(CONFIG.showHUD, false);
   setTimelineVisible(CONFIG.showTimeline, false);
   syncSettingsControls();
+
+  // Audio controls drive the shell-level music singleton (created in main.js).
+  window.cosmicX?.audio?.bindSettingsPanel?.(dialog);
 }
 
 function setupUI() {

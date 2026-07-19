@@ -22,6 +22,8 @@ export function solarTemplate() {
       aria-selected="false" aria-controls="settingsPanelCamera" tabindex="-1">Camera</button>
     <button id="settingsTabInterface" class="settings-tab" type="button" role="tab"
       aria-selected="false" aria-controls="settingsPanelInterface" tabindex="-1">Interface</button>
+    <button id="settingsTabAudio" class="settings-tab" type="button" role="tab"
+      aria-selected="false" aria-controls="settingsPanelAudio" tabindex="-1">Audio</button>
   </div>
   <div class="settings-panels">
     <section id="settingsPanelDisplay" class="settings-panel" role="tabpanel"
@@ -101,6 +103,28 @@ export function solarTemplate() {
       <div class="row"><span>Show collision warnings</span>
         <label class="switch"><input id="settingsWarnings" type="checkbox" aria-label="Show collision warnings"><span class="track"></span><span class="thumb"></span></label>
       </div>
+    </section>
+
+    <section id="settingsPanelAudio" class="settings-panel" role="tabpanel"
+      aria-labelledby="settingsTabAudio" hidden>
+      <div class="slider-row">
+        <div class="row"><label for="settingsMasterVol">Master volume</label><output class="value" id="settingsMasterVolVal"></output></div>
+        <input id="settingsMasterVol" type="range" min="0" max="100" step="1">
+      </div>
+      <div class="slider-row">
+        <div class="row"><label for="settingsBgmVol">Background music volume</label><output class="value" id="settingsBgmVolVal"></output></div>
+        <input id="settingsBgmVol" type="range" min="0" max="100" step="1">
+      </div>
+      <div class="row"><span>Random playback</span>
+        <label class="switch"><input id="settingsRandom" type="checkbox" aria-label="Random music playback"><span class="track"></span><span class="thumb"></span></label>
+      </div>
+      <div class="row"><span>Loop playlist</span>
+        <label class="switch"><input id="settingsLoop" type="checkbox" aria-label="Loop music playlist"><span class="track"></span><span class="thumb"></span></label>
+      </div>
+      <label class="settings-wide" for="settingsTrack">Now playing
+        <select id="settingsTrack" aria-label="Select music track"></select>
+      </label>
+      <p class="settings-help settings-wide">Random playback and looping apply to the Solar System playlist. Each scene fades between tracks automatically.</p>
     </section>
   </div>
 </dialog>

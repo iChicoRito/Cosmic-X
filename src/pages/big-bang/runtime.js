@@ -468,6 +468,8 @@ function stepTimeline(dt) {
   if ((T.u >= 1 && T.dir > 0) || (T.u <= 0 && T.dir < 0)) {
     setPlaying(false);
     setEndingVisible(T.dir > 0);
+    // The journey is over — fade the background music out completely.
+    if (T.dir > 0) window.cosmicX?.audio?.pause?.();
     toast(T.dir > 0 ? 'The universe fades to black — journey complete' : 'Back before the beginning');
   }
 }
@@ -512,6 +514,7 @@ function replayTimeline() {
     controls.enabled = false;
     applyEpoch(0);
     setPlaying(true);
+    window.cosmicX?.audio?.play?.();  // replay brings the music back
   });
 }
 
@@ -1398,6 +1401,11 @@ function applyEpoch(u) {
   const e = EPOCHS[idx];
   if (u < 1) setEndingVisible(false);
 
+  // Music fades with the timeline across the Future Universe epoch: full
+  // volume at its start, silence at the very end. Scrubbing back restores it.
+  const future = EPOCHS[EPOCHS.length - 1];
+  window.cosmicX?.audio?.setDuck?.(u <= future.u0 ? 1 : 1 - (u - future.u0) / (1 - future.u0));
+
   // user-adjustable expansion: scales post-inflation growth + redshift
   const postInf = smooth(u, EPOCHS[3].u0, EPOCHS[3].u0 + 0.05);
   env.scale *= 1 + (expansionRate - 1) * postInf;
@@ -1557,7 +1565,10 @@ function setupBBUI() {
   document.getElementById('bbPlay').addEventListener('click', () => {
     if (!T.playing) {
       T.dir = 1;
-      if (T.u >= 1) T.u = 0;   // replay from the start
+      if (T.u >= 1) {
+        T.u = 0;   // replay from the start
+        window.cosmicX?.audio?.play?.();
+      }
     }
     setPlaying(!T.playing);
   });

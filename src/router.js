@@ -94,6 +94,7 @@ export function startHashRouter({
   fade,
   loaders,
   win = window,
+  onRoute = () => {},
 }) {
   const listeners = new AbortController();
   const delay = ms => new Promise(resolve => win.setTimeout(resolve, ms));
@@ -111,6 +112,7 @@ export function startHashRouter({
       win.history.replaceState(null, '', `${win.location.pathname}${win.location.search}#${route.path}`);
     }
     win.document.body.dataset.route = route.page;
+    onRoute(route);
     await manager.activate(route);
   };
   const navigate = (path, { replace = false } = {}) => {
