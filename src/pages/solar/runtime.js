@@ -846,19 +846,19 @@ function createConstellations() {
     const stars = new THREE.Points(
       new THREE.BufferGeometry().setFromPoints(world),
       new THREE.PointsMaterial({
-        map: createPointSpriteTexture(), size: 3.4, sizeAttenuation: false,
-        color: 0xeaf2ff, transparent: true, opacity: 0.95,
+        map: createPointSpriteTexture(), size: 5.5, sizeAttenuation: false,
+        color: 0xffffff, transparent: true, opacity: 1,
         blending: THREE.AdditiveBlending, depthWrite: false,
       }),
     );
     const links = new THREE.LineSegments(
       new THREE.BufferGeometry().setFromPoints(p.sign.links.flatMap(([a, b]) => [world[a], world[b]])),
       new THREE.LineBasicMaterial({
-        color: 0x8fa8d8, transparent: true, opacity: 0.22,
+        color: 0xaac4f0, transparent: true, opacity: 0.5,
         blending: THREE.AdditiveBlending, depthWrite: false,
       }),
     );
-    const label = makeLabel(p.sign.symbol + ' ' + p.sign.name, 0);
+    const label = makeLabel(p.sign.name, 0);
     label.position.copy(center).multiplyScalar(1400).addScaledVector(up, -1.3 * p.scale);
     galaxyGroup.add(stars);
     galaxyGroup.add(links);
