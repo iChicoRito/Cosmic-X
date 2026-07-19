@@ -4,6 +4,7 @@ import { paintRangeFill } from '../../shared/range.js';
 import { createSolarConfig, GM_SUN, QUALITY, TEX_BASE } from './config.js';
 import { createSolarData } from './data.js';
 import { closestApproach } from './dynamics.js';
+import { pickZodiac } from './zodiac.js';
 import { createCameraMetadata } from './camera.js';
 import { createSolarSettings } from './settings.js';
 import {
@@ -818,6 +819,50 @@ function createLandmarks(g) {
     group.add(core);
     group.add(makeLabel(lm.name, lm.scale * 0.35));
     galaxyGroup.add(group);
+  }
+}
+
+// Zodiac overlay: each galaxy build has a 50% chance of scattering 2-4 random
+// zodiac constellations across the far sky (r=1400, just inside the distant-
+// galaxy imposters at 1500). Purely decorative — no UI, no pick records.
+function createConstellations() {
+  const picks = pickZodiac();
+  if (!picks) return;
+  for (const p of picks) {
+    const center = new THREE.Vector3(
+      Math.cos(p.pitch) * Math.cos(p.yaw),
+      Math.sin(p.pitch),
+      Math.cos(p.pitch) * Math.sin(p.yaw),
+    );
+    const right = _v1.set(0, 1, 0).cross(center).normalize();
+    const up = _v2.copy(center).cross(right).normalize();
+    const cosR = Math.cos(p.roll), sinR = Math.sin(p.roll);
+    const world = p.sign.points.map(([x, y]) => {
+      const rx = x * cosR - y * sinR, ry = x * sinR + y * cosR;
+      return center.clone().multiplyScalar(1400)
+        .addScaledVector(right, rx * p.scale)
+        .addScaledVector(up, ry * p.scale);
+    });
+    const stars = new THREE.Points(
+      new THREE.BufferGeometry().setFromPoints(world),
+      new THREE.PointsMaterial({
+        map: createPointSpriteTexture(), size: 3.4, sizeAttenuation: false,
+        color: 0xeaf2ff, transparent: true, opacity: 0.95,
+        blending: THREE.AdditiveBlending, depthWrite: false,
+      }),
+    );
+    const links = new THREE.LineSegments(
+      new THREE.BufferGeometry().setFromPoints(p.sign.links.flatMap(([a, b]) => [world[a], world[b]])),
+      new THREE.LineBasicMaterial({
+        color: 0x8fa8d8, transparent: true, opacity: 0.22,
+        blending: THREE.AdditiveBlending, depthWrite: false,
+      }),
+    );
+    const label = makeLabel(p.sign.symbol + ' ' + p.sign.name, 0);
+    label.position.copy(center).multiplyScalar(1400).addScaledVector(up, -1.3 * p.scale);
+    galaxyGroup.add(stars);
+    galaxyGroup.add(links);
+    galaxyGroup.add(label);
   }
 }
 
@@ -2107,6 +2152,7 @@ function buildGalaxy(index) {
   if (g.spiral) createSpiralArms(g);
   if (g.landmarks) createLandmarks(g);
   buildDistantGalaxies();
+  createConstellations();
   if (g.belt) createAsteroidBelt(); else belt = null;
   createTrojans(g);
   // resident near-Earth objects: opt-in via the Sim tab toggle
