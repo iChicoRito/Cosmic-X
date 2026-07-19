@@ -144,6 +144,13 @@
   select:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
   select option { background: #10141f; color: var(--fg); }
 
+  input[type="color"] {
+    width: 46px; height: 26px; padding: 0;
+    background: none; border: 1px solid var(--glass-border);
+    cursor: pointer;
+  }
+  input[type="color"]:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
+
   /* buttons */
   .btn {
     display: block; width: 100%; padding: 9px 12px;

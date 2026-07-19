@@ -159,6 +159,7 @@ export function solarTemplate() {
     <button class="tab" data-tab="sim">Sim</button>
     <button class="tab" data-tab="spawn">Spawn</button>
     <button class="tab" data-tab="impact">Impact</button>
+    <button class="tab" data-tab="laser">Laser</button>
     <button class="tab" data-tab="cam">Cam</button>
     <button class="tab" data-tab="fx">FX</button>
   </div>
@@ -298,6 +299,32 @@ export function solarTemplate() {
       <button id="launchBtn" class="btn danger">Launch</button>
       <button id="meteorBtn" class="btn">Meteor shower</button>
       <div class="note">Heavy, fast projectiles can shatter a planet outright; lighter ones crater it, kick up debris, and perturb its orbit. Meteor showers burn up in an atmosphere or pepper the surface with craters.</div>
+    </div>
+
+    <div class="tab-page" data-page="laser">
+      <div class="section-label">Target</div>
+      <select id="laserTarget" aria-label="Laser target"></select>
+      <div class="section-label">Beam</div>
+      <div class="slider-row">
+        <div class="row"><span>Width</span><span class="value" id="laserWidthVal"></span></div>
+        <input id="laserWidth" type="range" min="0.1" max="2" step="0.05">
+      </div>
+      <div class="row"><span>Color</span>
+        <input id="laserColor" type="color" value="#ff4a3a" aria-label="Beam color">
+      </div>
+      <div class="slider-row">
+        <div class="row"><span>Power</span><span class="value" id="laserPowerVal"></span></div>
+        <input id="laserPower" type="range" min="10" max="800" step="10">
+      </div>
+      <div class="slider-row">
+        <div class="row"><span>Duration</span><span class="value" id="laserDurationVal"></span></div>
+        <input id="laserDuration" type="range" min="0.2" max="3" step="0.1">
+      </div>
+      <div class="row"><span>Destructive</span>
+        <label class="switch"><input id="laserDestructive" type="checkbox" aria-label="Destructive beam" checked><span class="track"></span><span class="thumb"></span></label>
+      </div>
+      <button id="fireLaser" class="btn danger">Fire laser (F)</button>
+      <div class="note">A light-speed beam from your viewpoint to the target — it hits instantly. At full power a destructive beam shatters a world; non-destructive mode only scorches the surface.</div>
     </div>
 
     <div class="tab-page" data-page="cam">

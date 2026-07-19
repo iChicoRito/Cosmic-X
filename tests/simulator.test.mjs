@@ -1053,3 +1053,24 @@ test('registers Triangulum as a fourth deterministic explorable galaxy', () => {
   assert.match(functionSource('buildGalaxy'), /g\.spiral/);
   assert.match(functionSource('buildGalaxy'), /g\.landmarks/);
 });
+
+test('wires the customizable laser tab into the control panel', () => {
+  assert.match(html, /<button class="tab" data-tab="laser">Laser<\/button>/);
+  const page = section('<div class="tab-page" data-page="laser">', '<div class="tab-page" data-page="cam">');
+  for (const id of ['laserTarget', 'laserWidth', 'laserColor', 'laserPower', 'laserDuration', 'laserDestructive', 'fireLaser']) {
+    assert.ok(page.includes(`id="${id}"`), `laser page has ${id}`);
+  }
+  assertAttributes(startTagById('laserColor', page), { type: /^color$/, 'aria-label': /.+/ });
+
+  const fire = functionSource('fireLaser');
+  assertContracts(fire, {
+    cooldownGuard: /laserCooldown > 0/,
+    titleGuard: /titleMode/,
+    destructive: /destroyPlanet\(/,
+    scorch: /addCrater\(/,
+    effect: /kind:\s*'laser'/,
+  });
+  assert.match(functionSource('refreshImpactTargets'), /laserTarget/);
+  assert.match(functionSource('updateEffects'), /'laser'/);
+  assert.ok(/KeyF/.test(runtime), 'F key fires the laser');
+});

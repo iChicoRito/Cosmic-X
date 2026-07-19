@@ -1486,7 +1486,9 @@ const uiParams = {
   bhMass: 800,
   impSpeed: 2.5, impAngle: 0, impMass: 10, impSize: 1.5, lockOn: false,
   cometA: 140, cometE: 0.85, cometColor: 'blue',
+  laserWidth: 0.4, laserPower: 120, laserDuration: 0.8, laserDestructive: true, laserColor: '#ff4a3a',
 };
+let laserCooldown = 0;
 
 function launchProjectile() {
   const rec = planets[+ui('impactTarget').value];
@@ -1840,6 +1842,78 @@ function spawnShootingStar() {
   line.frustumCulled = false; // bounding sphere goes stale as the streak moves
   galaxyGroup.add(line);
   effects.push({ kind: 'shootstar', mesh: line, vel, life: 0, maxLife: 1.1 + Math.random() * 0.5 });
+}
+
+// Beam pose shared by fire-time placement and the per-frame effect update:
+// a unit cylinder (axis +Y) stretched between fx.start and fx.end.
+function placeLaser(fx) {
+  _v1.copy(fx.end).sub(fx.start);
+  const len = Math.max(_v1.length(), 0.001);
+  fx.group.position.copy(fx.start).addScaledVector(_v1, 0.5);
+  fx.group.quaternion.setFromUnitVectors(_v2.set(0, 1, 0), _v1.normalize());
+  fx.group.scale.set(1, len, 1);
+  fx.glow.position.copy(fx.end);
+}
+
+// Instant light-speed beam from the viewpoint to the chosen planet. Damage
+// lands the same frame; the beam itself is a fading effect that tracks the
+// target while it lives. Timeline rebuilds do not replay laser damage (the
+// laser writes nothing to the interaction log).
+function fireLaser() {
+  if (titleMode || laserCooldown > 0) return;
+  const rec = planets[+ui('laserTarget').value];
+  if (!rec || !rec.visible || rec.destroyed) return;
+  laserCooldown = 0.25;
+
+  // muzzle sits right of and below the lens so the beam reads as a beam
+  const start = camera.position.clone()
+    .addScaledVector(_v1.setFromMatrixColumn(camera.matrixWorld, 0), 1.5)
+    .addScaledVector(_v2.setFromMatrixColumn(camera.matrixWorld, 1), -1.2);
+  const dir = _v3.copy(rec.anchor.position).sub(start).normalize();
+  const hit = rec.anchor.position.clone().addScaledVector(dir, -rec.geoR);
+
+  const w = uiParams.laserWidth;
+  const color = new THREE.Color(uiParams.laserColor);
+  const group = new THREE.Group();
+  const outerMat = new THREE.MeshBasicMaterial({
+    color, transparent: true, opacity: 0.45,
+    blending: THREE.AdditiveBlending, depthWrite: false,
+  });
+  group.add(new THREE.Mesh(new THREE.CylinderGeometry(w, w, 1, 10, 1, true), outerMat));
+  const coreMat = new THREE.MeshBasicMaterial({
+    color: 0xffffff, transparent: true, opacity: 0.9,
+    blending: THREE.AdditiveBlending, depthWrite: false,
+  });
+  group.add(new THREE.Mesh(new THREE.CylinderGeometry(w * 0.35, w * 0.35, 1, 8, 1, true), coreMat));
+  group.frustumCulled = false; // stretched unit cylinder: stale bounds (shootstar precedent)
+  const glow = new THREE.Sprite(new THREE.SpriteMaterial({
+    map: createPointSpriteTexture(), color,
+    transparent: true, opacity: 0.9, blending: THREE.AdditiveBlending, depthWrite: false,
+  }));
+  glow.scale.setScalar(3 + w * 6);
+  galaxyGroup.add(group);
+  galaxyGroup.add(glow);
+  const fx = {
+    kind: 'laser', group, outerMat, coreMat, glow, target: rec,
+    start, end: hit.clone(), life: 0, maxLife: uiParams.laserDuration,
+  };
+  placeLaser(fx);
+  effects.push(fx);
+
+  // damage mirrors handleImpact's ladder with energy taken straight from Power
+  const energy = uiParams.laserPower;
+  spawnExplosion(hit, Math.min(3, 0.6 + energy * 0.02));
+  const frac = energy / (rec.def.radiusE * 55);
+  if (uiParams.laserDestructive && frac > 1) {
+    destroyPlanet(rec, hit);
+  } else if (uiParams.laserDestructive) {
+    addCrater(rec, hit, Math.min(rec.geoR * 0.7, 0.25 + energy * 0.004));
+    spawnDebris(hit, rec, Math.min(1, frac));
+    if (rec.mode === 'rail') rec.def.e = Math.min(0.4, rec.def.e + energy * 0.00008);
+  } else {
+    // non-destructive beam only scorches — no debris, no orbit change
+    addCrater(rec, hit, Math.min(rec.geoR * 0.4, 0.15 + energy * 0.002));
+  }
 }
 
 function removeBody(body) {
@@ -3335,16 +3409,18 @@ function refreshPlanetGrid() {
 }
 
 function refreshImpactTargets() {
-  const sel = ui('impactTarget');
-  const prev = sel.value;
-  sel.innerHTML = '';
-  planets.forEach((rec, i) => {
-    if (!rec.visible || rec.destroyed) return;
-    const o = document.createElement('option');
-    o.value = i; o.textContent = rec.def.name;
-    sel.appendChild(o);
-  });
-  if ([...sel.options].some(o => o.value === prev)) sel.value = prev;
+  for (const id of ['impactTarget', 'laserTarget']) {
+    const sel = ui(id);
+    const prev = sel.value;
+    sel.innerHTML = '';
+    planets.forEach((rec, i) => {
+      if (!rec.visible || rec.destroyed) return;
+      const o = document.createElement('option');
+      o.value = i; o.textContent = rec.def.name;
+      sel.appendChild(o);
+    });
+    if ([...sel.options].some(o => o.value === prev)) sel.value = prev;
+  }
 }
 
 function refreshGalaxyInfo() {
@@ -3622,6 +3698,14 @@ function setupUI() {
   bindSlider('impSize', 'impSizeVal', uiParams, 'impSize', v => v.toFixed(1) + ' u');
   bindSwitch('impLockOn', uiParams, 'lockOn');
 
+  // Laser
+  bindSlider('laserWidth', 'laserWidthVal', uiParams, 'laserWidth', v => v.toFixed(2) + ' u');
+  bindSlider('laserPower', 'laserPowerVal', uiParams, 'laserPower', v => v.toFixed(0));
+  bindSlider('laserDuration', 'laserDurationVal', uiParams, 'laserDuration', v => v.toFixed(1) + ' s');
+  bindSwitch('laserDestructive', uiParams, 'laserDestructive');
+  ui('laserColor').addEventListener('input', () => { uiParams.laserColor = ui('laserColor').value; });
+  ui('fireLaser').addEventListener('click', fireLaser);
+
   // Camera
   for (const button of document.querySelectorAll('.cam-btn')) {
     button.addEventListener('click', () => setCameraMode(button.dataset.cam));
@@ -3652,6 +3736,7 @@ function setupUI() {
       return;
     }
     if (/^(INPUT|SELECT|TEXTAREA|BUTTON)$/.test(event.target?.tagName || '')) return;
+    if (event.code === 'KeyF' && !titleMode) { fireLaser(); return; }
     cameraState.keys.add(event.code);
     if (event.code === 'Space' && cameraState.mode === 'free') {
       event.preventDefault();
@@ -4210,6 +4295,26 @@ function updateEffects(dt, dDays) {
         fx.mesh.geometry.dispose();
         fx.mesh.material.dispose();
       }
+    } else if (fx.kind === 'laser') {
+      const rec = fx.target;
+      if (rec && rec.visible && !rec.destroyed) {
+        // endpoint tracks the living target; freezes where it died otherwise
+        _v1.copy(rec.anchor.position).sub(fx.start).normalize();
+        fx.end.copy(rec.anchor.position).addScaledVector(_v1, -rec.geoR);
+      }
+      placeLaser(fx);
+      const fade = Math.max(0, 1 - t);
+      fx.outerMat.opacity = 0.45 * fade;
+      fx.coreMat.opacity = 0.9 * fade;
+      fx.glow.material.opacity = 0.9 * fade;
+      if (t >= 1) {
+        galaxyGroup.remove(fx.group);
+        galaxyGroup.remove(fx.glow);
+        for (const mesh of fx.group.children) mesh.geometry.dispose();
+        fx.outerMat.dispose();
+        fx.coreMat.dispose();
+        fx.glow.material.dispose(); // its map is the shared point-sprite texture — keep it
+      }
     }
   }
   effects = effects.filter(fx => fx.life < fx.maxLife);
@@ -4285,6 +4390,7 @@ function update(dt) {
 
   if (dDays > 0) updateDynamics(dDays, dt);
   updateTrojans();
+  if (laserCooldown > 0) laserCooldown = Math.max(0, laserCooldown - dt); // real time: ticks while paused
   warningUpdateTimer += dt;
   if (warningUpdateTimer >= 0.5) {
     warningUpdateTimer %= 0.5;
@@ -4389,6 +4495,7 @@ function runSelfCheck() {
     'barPlay', 'barPause', 'barReverse', 'timelinePrev', 'timelineNext',
     'barSpeedDown', 'barSpeedUp', 'timelineReset', 'timelinePresent',
     'timelineScrubber', 'timelineDetails', 'timelineDetailsPanel',
+    'laserTarget', 'fireLaser',
   ];
   checks.dom = requiredDomIds.every(id => !!document.getElementById(id));
   checks.settings = CONFIG.displayMode === 'windowed' || CONFIG.displayMode === 'fullscreen';
@@ -4496,7 +4603,7 @@ animate();
 // Console/debug handle
 window.solar = {
   THREE, camera, controls, CONFIG, flyTo, spawnComet, spawnAsteroid: () => spawnAsteroid(true),
-  spawnBlackHole, switchGalaxy, launchProjectile, selfCheck: runSelfCheck,
+  spawnBlackHole, switchGalaxy, launchProjectile, fireLaser, selfCheck: runSelfCheck,
   get planets() { return planets; },
   get dynBodies() { return dynBodies; },
   get blackHoles() { return blackHoles; },
