@@ -146,6 +146,22 @@ body,
   fill: currentColor;
 }
 
+/* Narrow screens: the top-center player shares the row with the corner
+   Back / Hide UI controls, so shrink then drop the wide track title and
+   tighten the cluster to keep it clear of both. */
+@media (max-width: 600px) {
+  #musicPlayer { gap: 8px; }
+  #musicPlayer .mp-title { max-width: 120px; font-size: 11px; }
+}
+
+@media (max-width: 440px) {
+  #musicPlayer { gap: 6px; }
+  #musicPlayer .mp-title { display: none; }
+  #musicPlayer .mp-disk { width: 20px; height: 20px; }
+  #musicPlayer .mp-disk .mp-hole { margin: 8px auto; }
+  #musicPlayer .mp-btn { width: 20px; height: 20px; }
+}
+
 @media (prefers-reduced-motion: reduce) {
   #musicPlayer[data-playing="true"] .mp-disk {
     animation: none;
