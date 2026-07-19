@@ -866,6 +866,7 @@ function createConstellations() {
       name: p.sign.name,
       isConstellation: true,
       sign: p.sign,
+      geoR: p.scale,
       anchor,
       visible: true,
       alive: true,
@@ -2136,6 +2137,7 @@ function buildGalaxy(index) {
   // cancelling a mid-air camera flight must also restore the controls the
   // flight disabled, or orbit input stays dead after a galaxy switch
   flight.active = false;
+  flight.destination = null;
   controls.enabled = !titleMode && (cameraState.mode === 'orbit' || cameraState.mode === 'follow');
   currentGalaxy = index;
   const g = GALAXIES[index];
@@ -2223,11 +2225,16 @@ const raycaster = new THREE.Raycaster();
 raycaster.params.Points.threshold = 8;
 raycaster.params.Line.threshold = 8;
 const pointerNDC = new THREE.Vector2();
-const flight = { active: false, t: 0, dur: 1.4, focus: null, fromPos: new THREE.Vector3(), fromTgt: new THREE.Vector3() };
+const flight = {
+  active: false, t: 0, dur: 1.4, focus: null, destination: null,
+  fromPos: new THREE.Vector3(), fromTgt: new THREE.Vector3(),
+};
+let zodiacReturnPose = null;
 let focused = null;
 const focusPrevPos = new THREE.Vector3();
 
 function viewDistance(rec) {
+  if (rec.isConstellation) return rec.geoR * 3;
   if (rec.isBH) return rec.geoR * 6;
   return rec.isSun ? rec.geoR * 4 : rec.geoR * CONFIG.planetScale * 5 + 3;
 }
@@ -2238,6 +2245,20 @@ function flyTo(rec, dur = 1.4) {
   flight.t = 0;
   flight.dur = dur;
   flight.focus = rec;
+  flight.destination = null;
+  flight.fromPos.copy(camera.position);
+  flight.fromTgt.copy(controls.target);
+  focused = null;
+  controls.enabled = false;
+}
+
+function flyToPose(pose, dur = 1.4) {
+  if (cameraState.mode !== 'orbit') setCameraMode('orbit');
+  flight.active = true;
+  flight.t = 0;
+  flight.dur = dur;
+  flight.focus = null;
+  flight.destination = pose;
   flight.fromPos.copy(camera.position);
   flight.fromTgt.copy(controls.target);
   focused = null;
@@ -2249,7 +2270,11 @@ function updateFlight(dt) {
     flight.t = Math.min(flight.t + dt / flight.dur, 1);
     const k = THREE.MathUtils.smoothstep(flight.t, 0, 1);
     const endTgt = _v1, endPos = _v2;
-    if (flight.focus) {
+    const destination = flight.destination;
+    if (destination) {
+      endPos.copy(destination.position);
+      endTgt.copy(destination.target);
+    } else if (flight.focus) {
       flight.focus.anchor.getWorldPosition(endTgt);
       const dir = _v3.copy(camera.position).sub(endTgt);
       if (dir.lengthSq() < 1e-6) dir.set(0, 0.3, 1);
@@ -2269,8 +2294,14 @@ function updateFlight(dt) {
     if (flight.t >= 1) {
       flight.active = false;
       controls.enabled = cameraState.mode === 'orbit' || cameraState.mode === 'follow';
+      flight.destination = null;
       focused = flight.focus;
-      if (focused) focused.anchor.getWorldPosition(focusPrevPos);
+      if (destination) {
+        if (destination.mode !== cameraState.mode) setCameraMode(destination.mode);
+        controls.target.copy(destination.target);
+      } else if (focused) {
+        focused.anchor.getWorldPosition(focusPrevPos);
+      }
     }
   } else if (focused) {
     focused.anchor.getWorldPosition(_v1);
@@ -2392,6 +2423,7 @@ function setCameraMode(mode) {
   }
 
   flight.active = false;
+  flight.destination = null;
   focused = null;
   cameraState.mode = mode;
   cameraState.targetInvalidated = false;
@@ -2532,7 +2564,17 @@ function setupPicking() {
     if (hit) {
       const record = byMesh.get(hit.object);
       selectRecord(record);
-      if (!record.isConstellation) {
+      if (record.isConstellation) {
+        if (!zodiacReturnPose) {
+          zodiacReturnPose = {
+            position: camera.position.clone(),
+            target: controls.target.clone(),
+            mode: cameraState.mode,
+          };
+        }
+        flyTo(record);
+      } else {
+        zodiacReturnPose = null;
         cameraState.target = record;
         syncCameraTargetSelect();
         if (cameraState.mode === 'orbit') flyTo(record);
@@ -3051,6 +3093,7 @@ function openInfoPanel(record) {
 function closeInfoPanel() {
   const panel = ui('infoPanel');
   const restoreFocus = panel.contains(document.activeElement);
+  zodiacReturnPose = null;
   infoTarget = null;
   panel.classList.remove('visible');
   panel.inert = true;
@@ -3061,13 +3104,17 @@ function closeInfoPanel() {
   }
 }
 
-// user-initiated close (X button / Escape): besides closing, glide the camera
-// back to the home view when it is locked on — or still flying to — the
-// inspected object. Automatic closes (destroyed body, galaxy rebuild, menu
-// return) keep calling closeInfoPanel directly and never move the camera.
+// User-initiated close restores a zodiac's saved pose; other focused objects
+// return home. Automatic closes never move the camera.
 function exitInfoPanel() {
+  const returnPose = infoTarget?.isConstellation ? zodiacReturnPose : null;
   closeInfoPanel();
-  if (!titleMode && (focused || (flight.active && flight.focus))) flyTo(null);
+  if (titleMode) return;
+  if (returnPose) {
+    flyToPose(returnPose);
+    return;
+  }
+  if (focused || (flight.active && flight.focus)) flyTo(null);
 }
 
 function refreshInfoPanel(dt) {

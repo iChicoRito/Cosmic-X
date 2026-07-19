@@ -1054,11 +1054,12 @@ test('registers Triangulum as a fourth deterministic explorable galaxy', () => {
   assert.match(functionSource('buildGalaxy'), /g\.landmarks/);
 });
 
-test('opens zodiac dossiers from stars and lines without moving the camera', () => {
+test('opens zodiac dossiers and restores the pre-selection camera pose', () => {
   const constellations = functionSource('createConstellations');
   assertContracts(constellations, {
     record: /isConstellation\s*:\s*true/,
     catalogData: /sign\s*:\s*p\.sign/,
+    scale: /geoR\s*:\s*p\.scale/,
     starTarget: /pickTargets\.push\(\s*stars\s*\)/,
     lineTarget: /pickTargets\.push\(\s*links\s*\)/,
     starRecord: /byMesh\.set\(\s*stars\s*,\s*record\s*\)/,
@@ -1067,13 +1068,29 @@ test('opens zodiac dossiers from stars and lines without moving the camera', () 
 
   assert.match(runtime, /raycaster\.params\.Points\.threshold\s*=\s*8/);
   assert.match(runtime, /raycaster\.params\.Line\.threshold\s*=\s*8/);
+  assert.match(functionSource('viewDistance'), /rec\.isConstellation[\s\S]*?rec\.geoR\s*\*\s*3/);
 
   const picking = functionSource('setupPicking');
-  assert.match(
-    picking,
-    /if\s*\(\s*!record\.isConstellation\s*\)\s*\{[\s\S]*?cameraState\.target\s*=\s*record[\s\S]*?\}/,
-  );
-  assert.match(picking, /openInfoPanel\(\s*record\s*\)/);
+  assertContracts(picking, {
+    oneTimePose: /if\s*\(\s*!zodiacReturnPose\s*\)/,
+    position: /position\s*:\s*camera\.position\.clone\(\)/,
+    target: /target\s*:\s*controls\.target\.clone\(\)/,
+    mode: /mode\s*:\s*cameraState\.mode/,
+    zodiacFlight: /record\.isConstellation[\s\S]*?flyTo\(\s*record\s*\)/,
+    nonZodiacCleanup: /else\s*\{[\s\S]*?zodiacReturnPose\s*=\s*null[\s\S]*?cameraState\.target\s*=\s*record/,
+  });
+
+  const exactFlight = functionSource('flyToPose');
+  assert.match(exactFlight, /flight\.destination\s*=\s*pose/);
+  const updateFlight = functionSource('updateFlight');
+  assert.match(updateFlight, /flight\.destination[\s\S]*?endPos\.copy\(\s*destination\.position\s*\)/);
+  assert.match(updateFlight, /endTgt\.copy\(\s*destination\.target\s*\)/);
+  assert.match(updateFlight, /setCameraMode\(\s*destination\.mode\s*\)/);
+
+  const exit = functionSource('exitInfoPanel');
+  assert.match(exit, /infoTarget\?\.isConstellation\s*\?\s*zodiacReturnPose\s*:\s*null/);
+  assert.match(exit, /flyToPose\(\s*returnPose\s*\)/);
+  assert.match(functionSource('closeInfoPanel'), /zodiacReturnPose\s*=\s*null/);
 
   const typeLabel = functionSource('bodyTypeLabel');
   assert.match(typeLabel, /record\.isConstellation[\s\S]*?Zodiac constellation/);
