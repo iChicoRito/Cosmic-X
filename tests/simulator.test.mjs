@@ -1021,3 +1021,35 @@ test('lazily previews the real Big Bang title scene on hover and keyboard focus'
   assert.doesNotMatch(html, /function\s+buildTitlePreview\s*\(/);
   assert.doesNotMatch(html, /function\s+updateTitlePreview\s*\(/);
 });
+
+test('registers Triangulum as a fourth deterministic explorable galaxy', () => {
+  const stubConfig = { distanceScale: 34, distanceExp: 0.55, particleDensity: 1, quality: 'high' };
+  const stubQuality = { high: { density: 1 } };
+  const { GALAXIES } = createSolarData(stubConfig, stubQuality);
+
+  assert.equal(GALAXIES.length, 4);
+  assert.equal(GALAXIES[0].name, 'Milky Way'); // Creator flow depends on index 0
+  const tri = GALAXIES[3];
+  assert.equal(tri.name, 'Triangulum');
+  assert.equal(tri.starProfile, 'Triangulum');
+  assert.ok(tri.star, 'Triangulum has a central star');
+  assert.ok(tri.spiral, 'Triangulum declares spiral arms');
+  assert.equal(tri.landmarks?.[0]?.name, 'NGC 604');
+
+  let prevAu = 0;
+  for (const def of tri.planets) {
+    assert.ok(Number.isFinite(def.au) && def.au > prevAu, `${def.name} au ordered`);
+    assert.ok(Number.isFinite(def.periodDays) && def.periodDays > 0, `${def.name} periodDays`);
+    assert.ok(Number.isFinite(def.rotHours), `${def.name} rotHours`);
+    prevAu = def.au;
+  }
+  const again = createSolarData(stubConfig, stubQuality).GALAXIES[3];
+  const signature = defs => defs.map(({ name, au, periodDays, radiusE }) => ({ name, au, periodDays, radiusE }));
+  assert.deepEqual(signature(again.planets), signature(tri.planets));
+
+  assert.match(constantSource('STAR_SUMMARY_PROFILES'), /Triangulum/);
+  assert.equal((constantSource('DISTANT_GALAXY_POSES').match(/dir:/g) || []).length, 4);
+  assert.ok(!runtime.includes("'MilkyWay' : 'Andromeda'"), 'no hard-coded two-galaxy star ternary');
+  assert.match(functionSource('buildGalaxy'), /g\.spiral/);
+  assert.match(functionSource('buildGalaxy'), /g\.landmarks/);
+});

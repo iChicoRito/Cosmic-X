@@ -764,6 +764,63 @@ function createNebulas(g) {
   galaxyGroup.add(nebulaGroup);
 }
 
+// Flat log-spiral star sheet — the "billions of stars" band seen from inside
+// a spiral galaxy. Gated on g.spiral so other galaxies render exactly as before.
+function createSpiralArms(g) {
+  const s = g.spiral;
+  const count = Math.floor(s.count * density());
+  const pos = new Float32Array(count * 3);
+  const col = new Float32Array(count * 3);
+  const rim = new THREE.Color(s.color);
+  const core = new THREE.Color('#fff6e8');
+  const c = new THREE.Color();
+  for (let i = 0; i < count; i++) {
+    const t = Math.random();
+    const r = s.rMin + (s.rMax - s.rMin) * Math.pow(t, 0.75);
+    const theta = Math.log(r / s.rMin) / s.pitch
+      + (i % s.arms) * (Math.PI * 2 / s.arms)
+      + (Math.random() - 0.5) * (0.25 + t * 0.55); // ragged, loose arms (M33 look)
+    pos[i * 3] = Math.cos(theta) * r;
+    pos[i * 3 + 1] = (Math.random() - 0.5) * (30 + t * 60); // thin disk, flaring outward
+    pos[i * 3 + 2] = Math.sin(theta) * r;
+    c.lerpColors(core, rim, Math.min(1, t * 1.3)).multiplyScalar(0.55 + Math.random() * 0.45);
+    col[i * 3] = c.r; col[i * 3 + 1] = c.g; col[i * 3 + 2] = c.b;
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
+  const pts = new THREE.Points(geo, new THREE.PointsMaterial({
+    map: createPointSpriteTexture(), size: 1.6, sizeAttenuation: false,
+    vertexColors: true, transparent: true, opacity: 0.55,
+    blending: THREE.AdditiveBlending, depthWrite: false,
+  }));
+  pts.rotation.x = s.tilt; // band crosses the sky instead of sitting table-flat
+  galaxyGroup.add(pts);
+}
+
+// Named deep-sky landmarks (NGC 604) as oversized glowing regions on the far
+// sky, labeled like the distant-galaxy imposters. Non-pickable.
+function createLandmarks(g) {
+  for (const lm of g.landmarks) {
+    const group = new THREE.Group();
+    group.position.fromArray(lm.dir).normalize().multiplyScalar(1350);
+    const cloud = new THREE.Sprite(new THREE.SpriteMaterial({
+      map: createNebulaTexture(lm.seed), color: lm.color,
+      transparent: true, opacity: 0.85, blending: THREE.AdditiveBlending, depthWrite: false,
+    }));
+    cloud.scale.setScalar(lm.scale);
+    group.add(cloud);
+    const core = new THREE.Sprite(new THREE.SpriteMaterial({
+      map: createPointSpriteTexture(), color: 0xfff0f6,
+      transparent: true, opacity: 0.9, blending: THREE.AdditiveBlending, depthWrite: false,
+    }));
+    core.scale.setScalar(lm.scale * 0.25);
+    group.add(core);
+    group.add(makeLabel(lm.name, lm.scale * 0.35));
+    galaxyGroup.add(group);
+  }
+}
+
 // The OTHER galaxies as far imposters: visible while exploring, pickable for
 // the dossier/bottom-bar, and part of the camera targets (so the cinematic
 // tour discovers them too). Fixed sky positions so each one is a landmark.
@@ -771,6 +828,7 @@ const DISTANT_GALAXY_POSES = [
   { dir: [0.55, 0.30, -0.78], tint: 0xffe6c4 },   // Milky Way seen from afar
   { dir: [-0.72, 0.22, 0.66], tint: 0xbcd0ff },   // Andromeda
   { dir: [0.28, -0.30, 0.91], tint: 0xffd9a8 },   // Messier 87
+  { dir: [-0.30, -0.34, -0.89], tint: 0xa8e8de }, // Triangulum
 ];
 
 function buildDistantGalaxies() {
@@ -1972,6 +2030,8 @@ function buildGalaxy(index) {
 
   createStarfieldFor(g);
   createNebulas(g);
+  if (g.spiral) createSpiralArms(g);
+  if (g.landmarks) createLandmarks(g);
   buildDistantGalaxies();
   if (g.belt) createAsteroidBelt(); else belt = null;
   createTrojans(g);
@@ -2379,6 +2439,7 @@ const SUMMARY_METRIC_KEYS = [
 const STAR_SUMMARY_PROFILES = {
   MilkyWay: { massSolar: 1, radiusKm: 695700, tempK: 5772, rotationDays: 25.4 },
   Andromeda: { massSolar: 2, radiusSolar: 1.7, tempK: 9000, rotationDays: 1.5 },
+  Triangulum: { massSolar: 1.3, radiusSolar: 1.35, tempK: 6600, rotationDays: 9 },
 };
 
 function finiteMetric(value, unit, qualifier) {
@@ -2445,8 +2506,7 @@ function buildObjectSummary(record, galaxy = GALAXIES[currentGalaxy]) {
   const unboundTrajectory = { periodDays: 0, status: 'Unbound' };
 
   if (!record) {
-    const starKey = galaxy === GALAXIES[0] ? 'MilkyWay' : 'Andromeda';
-    const profile = galaxy.star ? STAR_SUMMARY_PROFILES[starKey] : null;
+    const profile = galaxy.star ? STAR_SUMMARY_PROFILES[galaxy.starProfile] : null;
     const outer = galaxy.planets[galaxy.planets.length - 1];
     const planetTemps = galaxy.planets.map(def => factsFor(def, !!galaxy.star).tempC);
     mass = profile ? profile.massSolar * 1.98847e30 : (galaxy.blackHole?.mass || 0) * 1.98847e30;
@@ -2460,7 +2520,7 @@ function buildObjectSummary(record, galaxy = GALAXIES[currentGalaxy]) {
     velocity = 0;
     orbitalSpeed = 0;
   } else if (record.isSun) {
-    const profile = STAR_SUMMARY_PROFILES[galaxy === GALAXIES[0] ? 'MilkyWay' : 'Andromeda'];
+    const profile = STAR_SUMMARY_PROFILES[galaxy.starProfile];
     mass = profile.massSolar * 1.98847e30;
     radius = profile.radiusKm || profile.radiusSolar * 695700;
     temperature = profile.tempK;
@@ -3045,7 +3105,7 @@ function applyBaselinePose(targetDays) {
     }
   }
   if (sunMesh) {
-    const profile = STAR_SUMMARY_PROFILES[currentGalaxy === 0 ? 'MilkyWay' : 'Andromeda'];
+    const profile = STAR_SUMMARY_PROFILES[GALAXIES[currentGalaxy].starProfile];
     sunMesh.rotation.y = Math.PI * 2 * days / profile.rotationDays;
   }
   if (belt) belt.rotation.y = -Math.PI * 2 * days / BELT_PERIOD_DAYS;
@@ -4210,7 +4270,7 @@ function update(dt) {
 
   if (dDays < 0) applyBaselinePose(simDays);
   if (sunMesh) {
-    const profile = STAR_SUMMARY_PROFILES[currentGalaxy === 0 ? 'MilkyWay' : 'Andromeda'];
+    const profile = STAR_SUMMARY_PROFILES[GALAXIES[currentGalaxy].starProfile];
     sunMesh.rotation.y = Math.PI * 2 * simDays / profile.rotationDays;
   }
   if (belt) belt.rotation.y = -Math.PI * 2 * simDays / BELT_PERIOD_DAYS;

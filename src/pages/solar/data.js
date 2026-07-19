@@ -34,11 +34,86 @@ const M87_PLANETS = [
   { name: 'Acheron', au: 13,  e: 0, periodDays: 554.1, radiusE: 5.2,  tex: 'gas',   colors: ['#8a2a3a', '#5a1522', '#d06a7a'], trail: '#d07a8a', rotHours: 13, tiltDeg: 35, atmo: { color: '#ff6a7a', intensity: 0.45 }, ring: { inner: 1.4, outer: 2.2 } },
 ];
 
+// Deterministic PRNG so the Triangulum system is identical on every load
+// (and assertable in tests) while still reading as "procedurally generated".
+function mulberry32(seed) {
+  let a = seed >>> 0;
+  return () => {
+    a = (a + 0x6D2B79F5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+const M33_ROMAN = ['I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII'];
+const M33_PALETTES = {
+  rocky: [
+    { colors: ['#5a7a76', '#3a5a56', '#8fb8b0'], trail: '#8fd8cc' },
+    { colors: ['#7a5a66', '#5a3a46', '#b88fa0'], trail: '#d8a8bc' },
+  ],
+  venus: [{ colors: ['#d98a6a', '#f0b898', '#a85a3e'], trail: '#eca87a' }],
+  earth: [{ colors: ['#0d5a52', '#2aa88f', '#c8e6d0'], trail: '#6fe8d0' }],
+  gas: [
+    { colors: ['#7ad8cc', '#4aa89a', '#c5f2ea', '#5ac8b8'], trail: '#8ae8d8' },
+    { colors: ['#d87a9a', '#a84a6a', '#f0b8cc', '#c86a8a'], trail: '#e88aa8' },
+  ],
+};
+
+function generateSystem(seed, prefix, count) {
+  const rng = mulberry32(seed);
+  const defs = [];
+  let au = 0.45 + rng() * 0.2;
+  for (let i = 0; i < count; i++) {
+    const inner = au < 4;
+    const tex = inner
+      ? ['rocky', 'venus', 'earth', 'rocky'][Math.floor(rng() * 4)]
+      : 'gas';
+    const palettes = M33_PALETTES[tex];
+    const palette = palettes[Math.floor(rng() * palettes.length)];
+    const radiusE = tex === 'gas'
+      ? +(3.5 + rng() * 9).toFixed(2)
+      : +(0.4 + rng() * 1.5).toFixed(2);
+    const def = {
+      name: prefix + '-' + M33_ROMAN[i],
+      au: +au.toFixed(3),
+      e: +(rng() * 0.15).toFixed(3),
+      periodDays: Math.round(365.25 * Math.pow(au, 1.5)),
+      rotHours: Math.round(8 + rng() * 80),
+      tiltDeg: Math.round(rng() * 40),
+      radiusE,
+      tex,
+      colors: palette.colors,
+      trail: palette.trail,
+    };
+    if (tex === 'earth' || rng() < 0.55) {
+      def.atmo = { color: palette.trail, intensity: +(0.3 + rng() * 0.5).toFixed(2) };
+    }
+    if (tex === 'gas' && rng() < 0.5) {
+      def.ring = { inner: 1.45, outer: +(1.9 + rng() * 0.7).toFixed(2) };
+    }
+    if (rng() < 0.45) {
+      def.moon = {
+        name: def.name + ' b',
+        dist: +(4 + radiusE).toFixed(1),
+        periodDays: Math.round(5 + rng() * 30),
+        radiusE: +(0.1 + rng() * 0.15).toFixed(2),
+      };
+    }
+    defs.push(def);
+    au *= 1.6 + rng() * 0.6;
+  }
+  return defs;
+}
+
+const TRIANGULUM_PLANETS = generateSystem(33, 'M33', 5);
+
 const GALAXIES = [
   {
     name: 'Milky Way', type: 'Barred spiral', stars: '250 billion stars',
     desc: 'Home. Eight planets around a middle-aged G-type star, with an asteroid belt between Mars and Jupiter.',
     planets: MILKY_WAY_PLANETS, star: { radius: 8, colorA: '#ff8c1a', colorB: '#ffe6a3', boost: [1.7, 1.4, 1.0], light: 0xffffff },
+    starProfile: 'MilkyWay',
     belt: true, starTint: [0.9, 0.95, 1.05], starDensity: 1,
     nebulas: [['#3a5aa8', 0.16], ['#7a4aa8', 0.13], ['#2a7a8a', 0.1]],
   },
@@ -46,6 +121,7 @@ const GALAXIES = [
     name: 'Andromeda', type: 'Spiral (M31)', stars: '1 trillion stars',
     desc: 'Our nearest giant neighbor, imagined here as a system of six worlds around a hot blue-white star.',
     planets: ANDROMEDA_PLANETS, star: { radius: 10, colorA: '#7ab8ff', colorB: '#e8f4ff', boost: [1.2, 1.5, 1.9], light: 0xcfe4ff },
+    starProfile: 'Andromeda',
     belt: true, starTint: [0.8, 0.9, 1.2], starDensity: 1.4,
     nebulas: [['#2a6aca', 0.2], ['#8a3aa8', 0.16], ['#3a9aaa', 0.12]],
   },
@@ -55,6 +131,16 @@ const GALAXIES = [
     planets: M87_PLANETS, star: null, blackHole: { mass: 1500 },
     belt: false, starTint: [1.15, 1.0, 0.8], starDensity: 0.7,
     nebulas: [['#a85a2a', 0.18], ['#8a2a3a', 0.15], ['#caa04a', 0.1]],
+  },
+  {
+    name: 'Triangulum', type: 'Spiral (M33)', stars: '~40 billion stars',
+    desc: 'The Local Group\'s third-largest galaxy — a loose, open-armed spiral rich in young blue stars and glowing gas, home to NGC 604, one of the largest known star-forming regions. Five procedurally charted worlds orbit a bright F-type star.',
+    planets: TRIANGULUM_PLANETS, star: { radius: 9, colorA: '#bfe8e0', colorB: '#f6fffb', boost: [1.15, 1.6, 1.5], light: 0xdffff4 },
+    starProfile: 'Triangulum',
+    belt: true, starTint: [0.85, 1.05, 1.12], starDensity: 1.2,
+    nebulas: [['#2a8a9a', 0.18], ['#3ab8c8', 0.13], ['#a83a8a', 0.12]],
+    spiral: { arms: 3, rMin: 320, rMax: 1250, pitch: 0.30, tilt: -0.45, color: '#9fe8dc', count: 9000 },
+    landmarks: [{ name: 'NGC 604', dir: [0.45, 0.34, 0.83], color: '#ff8fb8', scale: 300, seed: 604 }],
   },
 ];
 
