@@ -1,4 +1,5 @@
 node_modules/
 dist/
 .worktrees/
+.claude/worktrees/
 .playwright-cli/
