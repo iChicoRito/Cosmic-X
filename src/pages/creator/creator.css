@@ -106,6 +106,8 @@ canvas.cr-canvas { position: fixed; inset: 0; display: block; }
 .cr-btn.danger:hover:not(:disabled) { background: rgba(255, 122, 90, 0.22); }
 .cr-btn.small { padding: 7px 11px; font-size: 11px; }
 .cr-btn.wide { width: 100%; margin-top: 10px; }
+/* armed placement tool — stays lit until the player disarms it */
+.cr-btn.on { border-color: rgba(138, 184, 255, 0.75); background: rgba(138, 184, 255, 0.28); color: #eaf3ff; }
 
 .cr-icon-btn {
   appearance: none;
@@ -321,10 +323,28 @@ canvas.cr-canvas { position: fixed; inset: 0; display: block; }
 .cr-stats dd.good { color: #9be8b8; }
 
 .cr-enc { display: grid; gap: 8px; }
-.cr-enc-entry { border: 1px solid var(--glass-border); padding: 10px 12px; }
-.cr-enc-entry.locked { opacity: 0.45; }
-.cr-enc-entry b { display: block; font-family: var(--font-display); font-size: 13px; font-weight: 600; margin-bottom: 4px; }
-.cr-enc-entry p { margin: 0; font-size: 11px; color: var(--muted); line-height: 1.45; }
+/* Codex entries are buttons: titles only until one is opened, so 24 entries
+   read as a list instead of a wall of prose. */
+.cr-enc-entry {
+  appearance: none;
+  display: block;
+  width: 100%;
+  text-align: left;
+  border: 1px solid var(--glass-border);
+  background: var(--glass-soft);
+  color: var(--fg);
+  font: inherit;
+  padding: 10px 12px;
+  cursor: pointer;
+  transition: border-color 0.18s ease, background 0.18s ease;
+}
+.cr-enc-entry:hover:not(:disabled) { background: var(--glass-hover); }
+.cr-enc-entry:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
+.cr-enc-entry.locked { opacity: 0.45; cursor: default; }
+.cr-enc-entry.on { border-color: rgba(138, 184, 255, 0.55); background: rgba(138, 184, 255, 0.12); }
+.cr-enc-entry b { display: block; font-family: var(--font-display); font-size: 13px; font-weight: 600; }
+.cr-enc-entry p { margin: 4px 0 0; font-size: 11px; color: var(--muted); line-height: 1.45; }
+.cr-enc-entry:not(.on) p { display: none; }
 
 .cr-slots { list-style: none; margin: 10px 0; padding: 0; display: grid; gap: 6px; }
 .cr-slots li { display: flex; align-items: center; gap: 8px; border: 1px solid var(--glass-border); padding: 8px 10px; }

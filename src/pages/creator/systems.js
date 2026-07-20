@@ -150,6 +150,59 @@ export function createSystem(opts, rng = Math.random) {
   return system;
 }
 
+export function planetColor(planet) {
+  switch (planet.class) {
+    case 'gas-giant': return 0xd8b28a;
+    case 'ice-giant': return 0x9fd4e8;
+    case 'ocean': return 0x3f7fd4;
+    case 'lava': return 0xe86840;
+    case 'super-earth': return 0x7fae6f;
+    case 'dwarf': return 0xa9a29a;
+    default: return planet.habitable ? 0x5f9e63 : 0xb0876a;
+  }
+}
+
+/* Display geometry for the dedicated system view — the scene you fly into,
+   not the thumbnail-sized detail meshes drawn inside the galaxy. Pure so the
+   framing and ordering guarantees can be unit tested. */
+export function systemViewLayout(system) {
+  const stars = system.stars.map((star, i) => ({
+    color: star.color,
+    radius: 1.2 + Math.log10(Math.max(star.luminosity, 0.01) + 1.2) * 0.9,
+    offset: i * 3.4,
+  }));
+  const starRadius = Math.max(...stars.map(s => s.radius));
+  // Orbits are log-compressed: a 0.4 AU lava world and a 40 AU ice giant both
+  // stay reachable without the inner system collapsing onto the star.
+  const orbitOf = au => starRadius * 2.2 + Math.log10(1 + Math.max(au, 0) * 9) * 11;
+  // Bodies are deliberately oversized against their orbits. At true scale a
+  // whole system in frame renders every planet sub-pixel.
+  const planets = system.planets.map(planet => ({
+    name: planet.name,
+    radius: Math.min(0.5 + planet.radius * 0.35, starRadius * 0.9),
+    orbit: orbitOf(planet.orbitAU),
+    periodDays: Math.max(planet.periodDays, 10),
+    moons: Math.min(planet.moons, 5),
+    rings: !!planet.rings,
+    habitable: !!planet.habitable,
+    color: planetColor(planet),
+  }));
+  const hz = system.habitableZone;
+  const belt = system.belt ? orbitOf(hz.out * 2.4) : null;
+  const edge = Math.max(planets.length ? planets[planets.length - 1].orbit : orbitOf(hz.out), belt ?? 0);
+  return {
+    stars,
+    starRadius,
+    planets,
+    belt,
+    comets: system.comets,
+    habitableZone: { in: orbitOf(hz.in), out: orbitOf(hz.out) },
+    edge,
+    // Far enough back that the outermost orbit clears the frustum with margin.
+    framing: edge * 1.5 + starRadius * 4,
+  };
+}
+
 export const OBJECT_KINDS = [
   { id: 'nebula', name: 'Nebula', desc: 'A luminous cradle of gas and dust where stars ignite.', color: '#e88ad2', scale: 8 },
   { id: 'blackHole', name: 'Black Hole', desc: 'Collapsed spacetime; nothing that crosses the horizon returns.', color: '#7fb2ff', scale: 3 },

@@ -37,6 +37,8 @@ import {
   OBJECT_KINDS,
   ENCYCLOPEDIA,
   encyclopediaEntry,
+  planetColor,
+  systemViewLayout,
 } from '../src/pages/creator/systems.js';
 import {
   STORE_KEY,
@@ -196,6 +198,43 @@ test('stellar systems: habitable zone, orbits and derived planet physics', () =>
   const frozen = derivePlanet({ ...earthLike, orbitAU: 30 }, system);
   assert.equal(frozen.habitable, false);
   assert.equal(isHabitable(frozen, system.habitableZone), false);
+});
+
+test('system view layout frames every orbit outside the star', () => {
+  const rng = mulberry32(9);
+  const system = createSystem({ name: 'Vista', pos: [0, 0, 0], stars: [{ type: 'G' }] }, rng);
+  const layout = systemViewLayout(system);
+
+  assert.equal(layout.planets.length, system.planets.length);
+  assert.ok(layout.starRadius > 0);
+
+  for (const planet of layout.planets) {
+    assert.ok(planet.orbit > layout.starRadius, `${planet.name} orbits outside the star`);
+    assert.ok(planet.radius < layout.starRadius, `${planet.name} is smaller than its star`);
+    assert.ok(Number.isFinite(planet.color));
+  }
+  for (let i = 1; i < layout.planets.length; i++) {
+    assert.ok(layout.planets[i].orbit > layout.planets[i - 1].orbit, 'orbits stay ordered');
+  }
+
+  assert.ok(layout.habitableZone.out > layout.habitableZone.in);
+  // The camera must sit back far enough to hold the whole system in frame.
+  assert.ok(layout.framing > layout.edge, 'framing distance clears the outermost orbit');
+  for (const planet of layout.planets) assert.ok(layout.edge >= planet.orbit);
+
+  // Brighter stars read bigger, and a multi-star system frames wider.
+  const bright = systemViewLayout(createSystem(
+    { name: 'Blaze', pos: [0, 0, 0], stars: [{ type: 'O' }] }, mulberry32(9)));
+  assert.ok(bright.starRadius > layout.starRadius);
+  assert.equal(systemViewLayout(createSystem(
+    { name: 'Pair', pos: [0, 0, 0], stars: [{ type: 'G' }, { type: 'G' }] }, mulberry32(9))).stars.length, 2);
+});
+
+test('planet colors are stable per class and fall back on habitability', () => {
+  assert.equal(planetColor({ class: 'ocean' }), 0x3f7fd4);
+  assert.equal(planetColor({ class: 'lava' }), 0xe86840);
+  assert.equal(planetColor({ class: 'gas-giant' }), planetColor({ class: 'gas-giant' }));
+  assert.notEqual(planetColor({ class: 'rocky', habitable: true }), planetColor({ class: 'rocky', habitable: false }));
 });
 
 test('object catalog + encyclopedia cover the task list', () => {

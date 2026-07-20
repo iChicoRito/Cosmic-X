@@ -14,8 +14,9 @@ import {
 import {
   STAR_TYPES, PLANET_CLASSES, ATMOSPHERES, starByType, createSystem,
   derivePlanet, generatePlanets, habitableZone, systemLuminosity, OBJECT_KINDS,
-  objectKind, ENCYCLOPEDIA, encyclopediaEntry,
+  objectKind, ENCYCLOPEDIA, encyclopediaEntry, planetColor,
 } from './systems.js';
+import { createSystemView } from './system-view.js';
 import { createStore, sanitizeState, serializeState, deserializeState } from './persistence.js';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
@@ -42,7 +43,7 @@ const TAU = Math.PI * 2;
    ================================================================ */
 
 const state = {
-  view: 'title',              // 'title' | 'wizard' | 'sim'
+  view: 'title',              // 'title' | 'wizard' | 'sim' | 'system'
   wizardStep: 0,
   params: null,               // sanitized galaxy params once wizard opens
   stats: null,
@@ -54,7 +55,8 @@ const state = {
   selection: null,            // { type, system?, planet?, object?, sprite? }
   focusSystemId: null,
   uiHidden: false,
-  fx: { quality: 2, bloom: 1.05, starBrightness: 1, showNebulae: true, showClusters: true, twinkle: true },
+  fx: { quality: 2, bloom: 0.62, starBrightness: 1, showNebulae: true, showClusters: true, twinkle: true },
+  codexFocus: null,           // encyclopedia entry id expanded in the Codex panel
 };
 const store = createStore(window.localStorage);
 const evolveRng = mulberry32((Math.random() * 0x7fffffff) | 0);
@@ -83,19 +85,39 @@ controls.maxDistance = 900;
 
 const composer = new EffectComposer(renderer);
 composer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-composer.addPass(new RenderPass(scene, camera));
-composer.addPass(new ShaderPass(BloomClampShader));
+// Kept as a handle: entering a stellar system swaps this pass over to the
+// dedicated system scene and camera, so the rest of the chain is shared.
+const renderPass = new RenderPass(scene, camera);
+composer.addPass(renderPass);
+// Highlights are compressed before bloom sees them. The shared default cap (4.0)
+// lets nearly everything through, which is what buried planet surfaces in haze.
+const clampPass = new ShaderPass(BloomClampShader);
+clampPass.uniforms.uCap.value = 1.6;
+composer.addPass(clampPass);
 const bloomPass = new UnrealBloomPass(
-  new THREE.Vector2(window.innerWidth, window.innerHeight), 1.05, 0.62, 0.18);
+  new THREE.Vector2(window.innerWidth, window.innerHeight), 0.62, 0.5, 0.55);
 composer.addPass(bloomPass);
 const lensingPass = new ShaderPass(LensingShader);
 lensingPass.enabled = false;
 composer.addPass(lensingPass);
 composer.addPass(new OutputPass());
 
+const systemView = createSystemView({
+  renderer, renderPass,
+  galaxyScene: scene, galaxyCamera: camera, galaxyControls: controls,
+  onPick: (pick) => {
+    if (pick) selectPick(pick);
+    else {
+      state.selection = null;
+      $('crInspector').hidden = true;
+    }
+  },
+});
+
 scope.listen(window, 'resize', () => {
   camera.aspect = window.innerWidth / window.innerHeight;
   camera.updateProjectionMatrix();
+  systemView.resize();
   renderer.setSize(window.innerWidth, window.innerHeight);
   composer.setSize(window.innerWidth, window.innerHeight);
 });
@@ -331,7 +353,7 @@ function rebuildGalaxy(params) {
       map: glowTexture('rgba(255,244,220,1)', 'rgba(255,214,150,0.55)', 'rgba(255,170,90,0.14)'),
       transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
     }));
-    coreGlow.scale.setScalar(sample.R * params.coreSize * 2.4);
+    coreGlow.scale.setScalar(sample.R * params.coreSize * 1.6);
     galaxyGroup.add(coreGlow);
   }
   galaxy = { points, sample, sprites, coreGlow };
@@ -349,6 +371,9 @@ function applyFx() {
   renderer.setSize(window.innerWidth, window.innerHeight);
   composer.setSize(window.innerWidth, window.innerHeight);
   bloomPass.strength = fx.bloom;
+  // Inside a system the subject is a lit planet, not a star field — pull bloom
+  // back further so surface detail survives.
+  if (state.view === 'system') bloomPass.strength *= 0.7;
   if (galaxy) {
     const u = galaxy.points.material.uniforms;
     u.uOpacity.value = fx.starBrightness;
@@ -472,7 +497,8 @@ function buildSystemDetail(system) {
       map: glowTexture('rgba(255,255,255,1)', 'rgba(255,255,255,0.35)', 'rgba(255,255,255,0.06)'),
       color: star.color, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
     }));
-    glow.scale.setScalar(size * 6);
+    // Halo stays close to the photosphere — at 6x it swallowed the inner planets.
+    glow.scale.setScalar(size * 3);
     mesh.add(glow);
     detail.add(mesh);
   });
@@ -554,18 +580,6 @@ function orbitGeometry(r) {
     pts.push(new THREE.Vector3(Math.cos(a) * r, 0, Math.sin(a) * r));
   }
   return new THREE.BufferGeometry().setFromPoints(pts);
-}
-
-function planetColor(planet) {
-  switch (planet.class) {
-    case 'gas-giant': return 0xd8b28a;
-    case 'ice-giant': return 0x9fd4e8;
-    case 'ocean': return 0x3f7fd4;
-    case 'lava': return 0xe86840;
-    case 'super-earth': return 0x7fae6f;
-    case 'dwarf': return 0xa9a29a;
-    default: return planet.habitable ? 0x5f9e63 : 0xb0876a;
-  }
 }
 
 function removeSystemVisual(id) {
@@ -779,6 +793,7 @@ function unlock(id, quiet = false) {
   if (!entry) return;
   state.discoveries.add(id);
   if (!quiet) toast(`Codex unlocked — ${entry.title}`);
+  state.codexFocus = id;          // a fresh discovery opens itself in the Codex
   refreshEncyclopedia();
 }
 
@@ -924,7 +939,10 @@ function syncTransport() {
     btn.setAttribute('aria-pressed', String(state.sim.playing && Number(btn.dataset.idx) === state.sim.speedIdx));
   }
   $('crYears').textContent = formatYears(state.sim.years);
-  $('crGalaxyName').textContent = state.params ? state.params.name : '';
+  // Inside a system the bar names the system, not its parent galaxy.
+  $('crGalaxyName').textContent = systemView.active && systemView.system
+    ? systemView.system.name
+    : (state.params ? state.params.name : '');
   syncGlance();
 }
 
@@ -979,6 +997,76 @@ function updateCamTween(dt) {
   camera.position.lerpVectors(camTween.fromPos, camTween.toPos, e);
   controls.target.lerpVectors(camTween.fromTarget, camTween.toTarget, e);
   if (u >= 1) camTween = null;
+}
+
+/* ================================================================
+   ENTERING A STELLAR SYSTEM
+
+   Galaxy view punches in toward the marker, the screen dips to black
+   mid-flight, and the dedicated system scene picks the same motion up
+   on the other side. The cut lands inside the dip, so it reads as one
+   continuous zoom rather than a scene swap.
+   ================================================================ */
+
+let galaxyReturnPose = null;
+let transitionTimer = 0;
+
+function enterSystem(systemId) {
+  if (systemView.active || state.view !== 'sim') return false;
+  const system = state.systems.find(s => s.id === systemId);
+  const vis = systemVisuals.get(systemId);
+  if (!system || !vis) return false;
+
+  galaxyReturnPose = { position: camera.position.clone(), target: controls.target.clone() };
+  setPlacing(null);                       // placement tools are galaxy-only
+  state.focusSystemId = systemId;
+
+  const worldPos = vis.rootObj.getWorldPosition(new THREE.Vector3());
+  flyTo(worldPos.clone().add(new THREE.Vector3(3, 4, 7)), worldPos, 0.85);
+
+  clearTimeout(transitionTimer);
+  transitionTimer = setTimeout(() => {
+    fadeDip(() => {
+      state.view = 'system';
+      camTween = null;
+      systemView.enter(system);
+      applyFx();                          // system view runs a gentler bloom
+      syncSystemChrome();
+      selectPick({ type: 'system', id: system.id });
+    });
+  }, 620);
+  return true;
+}
+
+function exitSystem() {
+  if (!systemView.active) return false;
+  clearTimeout(transitionTimer);
+  fadeDip(() => {
+    systemView.exit();
+    state.view = 'sim';
+    state.focusSystemId = null;
+    applyFx();
+    syncSystemChrome();
+    if (galaxyReturnPose) {
+      camera.position.copy(galaxyReturnPose.position);
+      controls.target.copy(galaxyReturnPose.target);
+      controls.update();
+      galaxyReturnPose = null;
+    }
+  });
+  return true;
+}
+
+// Galaxy-only tools have no meaning inside a system; grey them out rather than
+// letting a click arm a placement that can never land.
+function syncSystemChrome() {
+  const inSystem = state.view === 'system';
+  for (const tab of document.querySelectorAll('.cr-tab')) {
+    if (tab.dataset.panel === 'place' || tab.dataset.panel === 'events') tab.disabled = inSystem;
+  }
+  if (inSystem && (activePanel === 'place' || activePanel === 'events')) openPanel('stats');
+  syncTransport();
+  hint(inSystem ? 'Click a planet to inspect it — Esc returns to the galaxy' : '');
 }
 
 /* ================================================================
@@ -1053,7 +1141,11 @@ function buildPanels() {
   syncStarSliders();
 
   $('crAddSystemBtn').addEventListener('click', () => {
-    state.placing = {
+    if (state.placing?.mode === 'system') {
+      setPlacing(null);
+      return;
+    }
+    setPlacing({
       mode: 'system',
       config: {
         type: starSel.value,
@@ -1062,8 +1154,7 @@ function buildPanels() {
         tempK: starCfg.tempK,
         luminosity: Number((10 ** starCfg.lumExp).toFixed(3)),
       },
-    };
-    hint('Click anywhere in the galaxy to found the stellar system (Esc cancels)');
+    });
   });
 
   // Build panel — planets
@@ -1130,8 +1221,8 @@ function buildPanels() {
     btn.dataset.kind = kind.id;
     btn.innerHTML = `${kind.name}<small>${kind.desc}</small>`;
     btn.addEventListener('click', () => {
-      state.placing = { mode: 'object', kind: kind.id };
-      hint(`Click the galaxy to place: ${kind.name} (Esc cancels)`);
+      const armed = state.placing?.mode === 'object' && state.placing.kind === kind.id;
+      setPlacing(armed ? null : { mode: 'object', kind: kind.id });
     });
     placeGrid.append(btn);
   }
@@ -1191,6 +1282,7 @@ function rebuildSystemDetail(system) {
   }
   buildSystemDetail(system);
   if (vis) vis.detail.visible = state.focusSystemId === system.id;
+  if (systemView.active && systemView.system?.id === system.id) systemView.rebuild(system);
 }
 
 /* ================================================================
@@ -1235,15 +1327,32 @@ function refreshEncyclopedia() {
   if (!host) return;
   $('crEncProgress').textContent = `${state.discoveries.size} of ${ENCYCLOPEDIA.length} entries discovered`;
   host.replaceChildren();
+  let focused = null;
   for (const entry of ENCYCLOPEDIA) {
     const unlocked = state.discoveries.has(entry.id);
-    const div = document.createElement('div');
-    div.className = `cr-enc-entry${unlocked ? '' : ' locked'}`;
-    div.innerHTML = unlocked
+    const open = unlocked && state.codexFocus === entry.id;
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = `cr-enc-entry${unlocked ? '' : ' locked'}${open ? ' on' : ''}`;
+    btn.dataset.entry = entry.id;
+    btn.disabled = !unlocked;
+    btn.setAttribute('aria-expanded', String(open));
+    btn.innerHTML = unlocked
       ? `<b>${entry.title}</b><p>${entry.body}</p>`
       : `<b>???</b><p>Discover this phenomenon to decode the entry.</p>`;
-    host.append(div);
+    btn.addEventListener('click', () => focusCodexEntry(entry.id));
+    host.append(btn);
+    if (open) focused = btn;
   }
+  if (focused) focused.scrollIntoView({ block: 'nearest' });
+}
+
+// Opening an entry collapses the rest, so the panel always reads as one
+// article rather than twenty-four competing for the same column.
+function focusCodexEntry(id) {
+  if (!state.discoveries.has(id)) return;
+  state.codexFocus = state.codexFocus === id ? null : id;
+  refreshEncyclopedia();
 }
 
 function refreshSlots() {
@@ -1309,6 +1418,12 @@ function clearWorld() {
 
 function applyState(data) {
   const clean = sanitizeState(data);
+  if (systemView.active) {          // the entered system is about to be replaced
+    systemView.exit();
+    state.view = 'sim';
+    galaxyReturnPose = null;
+    syncSystemChrome();
+  }
   clearWorld();
   state.params = clean.params;
   state.sim = clean.sim;
@@ -1374,7 +1489,33 @@ function pointerToRay(event) {
   raycaster.setFromCamera(pointer, camera);
 }
 
+// The armed tool survives a successful drop, so a field of nebulae costs one
+// palette click plus N canvas clicks instead of 2N. `null` disarms.
+function setPlacing(next) {
+  state.placing = next;
+  const kind = next?.mode === 'object' ? next.kind : null;
+  for (const btn of document.querySelectorAll('#crPlaceGrid .cr-choice')) {
+    btn.classList.toggle('on', btn.dataset.kind === kind);
+  }
+  $('crAddSystemBtn').classList.toggle('on', next?.mode === 'system');
+  if (!next) hint('');
+  else if (next.mode === 'system') hint('Click anywhere in the galaxy to found a stellar system (Esc cancels)');
+  else hint(`Click the galaxy to place: ${objectKind(kind).name} (Esc cancels)`);
+}
+
+function bumpPlacingHint() {
+  const placing = state.placing;
+  if (!placing) return;
+  placing.count = (placing.count || 0) + 1;
+  const label = placing.mode === 'system' ? 'Stellar system' : objectKind(placing.kind).name;
+  hint(`${label} ×${placing.count} placed — click to add another (Esc to stop)`);
+}
+
 function handleCanvasClick(event) {
+  if (state.view === 'system') {
+    systemView.pick(event);
+    return;
+  }
   if (state.view !== 'sim') return;
   pointerToRay(event);
 
@@ -1386,8 +1527,7 @@ function handleCanvasClick(event) {
     if (local.length() > R * 1.2) local.setLength(R * 1.2);
     if (state.placing.mode === 'system') placeSystemAt(local);
     else placeObjectAt(local, state.placing.kind);
-    state.placing = null;
-    hint('');
+    bumpPlacingHint();
     return;
   }
 
@@ -1456,7 +1596,7 @@ function selectPick(pick, node = null) {
     const system = state.systems.find(s => s.id === pick.id);
     if (!system) return;
     state.selection = { type: 'system', system };
-    showInspector(system.name, `${system.stars.length > 1 ? 'Multiple' : starByType(system.stars[0].type).name} stellar system`, systemFacts(system), { removable: true });
+    showInspector(system.name, `${system.stars.length > 1 ? 'Multiple' : starByType(system.stars[0].type).name} stellar system`, systemFacts(system), { removable: true, enterable: true });
     $('crPlanetTarget').textContent = `→ ${system.name}`;
     $('crAddPlanetBtn').disabled = false;
   } else if (pick.type === 'planet') {
@@ -1464,7 +1604,7 @@ function selectPick(pick, node = null) {
     const planet = system?.planets.find(p => p.name === pick.planetName);
     if (!planet) return;
     state.selection = { type: 'planet', system, planet };
-    showInspector(planet.name, `${PLANET_CLASSES.find(c => c.id === planet.class)?.name || planet.class} planet`, planetFacts(planet), { removable: false });
+    showInspector(planet.name, `${PLANET_CLASSES.find(c => c.id === planet.class)?.name || planet.class} planet`, planetFacts(planet), { removable: false, enterable: true });
   } else if (pick.type === 'object') {
     const obj = state.objects.find(o => o.id === pick.id);
     if (!obj) return;
@@ -1520,7 +1660,8 @@ function objectFacts(obj) {
   ];
 }
 
-function showInspector(name, kindLine, facts, { removable }) {
+function showInspector(name, kindLine, facts, { removable, enterable = false }) {
+  $('crFocusBtn').textContent = enterable && !systemView.active ? 'Enter System' : 'Focus';
   $('crInspName').textContent = name;
   $('crInspKind').textContent = kindLine;
   const dl = $('crInspFacts');
@@ -1867,7 +2008,17 @@ function setupUI() {
   });
   $('crInspClose').addEventListener('click', () => { $('crInspector').hidden = true; });
   $('crScanBtn').addEventListener('click', scanSelection);
-  $('crFocusBtn').addEventListener('click', focusSelection);
+  $('crFocusBtn').addEventListener('click', () => {
+    const sel = state.selection;
+    if (systemView.active) {
+      if (sel?.type === 'planet') systemView.focusPlanet(sel.planet.name);
+      else systemView.frameSystem();
+    } else if (sel?.type === 'system' || sel?.type === 'planet') {
+      enterSystem(sel.system.id);
+    } else {
+      focusSelection();
+    }
+  });
   $('crRemoveBtn').addEventListener('click', removeSelection);
 
   scope.listen(root.querySelector('#creatorBackLink'), 'click', event => {
@@ -1885,9 +2036,24 @@ function setupUI() {
     if (moved < 6) handleCanvasClick(event);
   });
 
+  // Double-clicking a system (or one of its planets) flies all the way in.
+  scope.listen(renderer.domElement, 'dblclick', event => {
+    if (state.view !== 'sim') return;
+    pointerToRay(event);
+    for (const hit of raycaster.intersectObjects(pickables, true)) {
+      let node = hit.object;
+      while (node && !node.userData.pick) node = node.parent;
+      const pick = node?.userData.pick;
+      if (!pick) continue;
+      if (pick.type === 'system') enterSystem(pick.id);
+      else if (pick.type === 'planet') enterSystem(pick.systemId);
+      return;
+    }
+  });
+
   scope.listen(window, 'keydown', event => {
     if (event.target instanceof HTMLInputElement || event.target instanceof HTMLSelectElement) return;
-    if (event.code === 'Space' && state.view === 'sim') {
+    if (event.code === 'Space' && (state.view === 'sim' || state.view === 'system')) {
       event.preventDefault();
       state.sim.playing = !state.sim.playing;
       syncTransport();
@@ -1896,8 +2062,9 @@ function setupUI() {
       document.body.classList.toggle('cr-ui-hidden', state.uiHidden);
     } else if (event.key === 'Escape') {
       if (state.placing) {
-        state.placing = null;
-        hint('');
+        setPlacing(null);
+      } else if (systemView.active) {
+        exitSystem();
       } else if (!$('crInspector').hidden) {
         $('crInspector').hidden = true;
       } else if (state.focusSystemId) {
@@ -1919,7 +2086,34 @@ function setupUI() {
 
 const clock = new THREE.Clock();
 
+// Simulated time keeps running wherever the camera is — stepping into a system
+// should not silently pause the galaxy's evolution behind you.
+function advanceSimClock(dt) {
+  if (state.sim.playing) {
+    const dtYears = dt * SPEEDS[state.sim.speedIdx] * BASE_YEARS_PER_SECOND;
+    state.sim.years += dtYears;
+    handleEvolutionEvents(stepEvolution(state.stats, state.params, dtYears, evolveRng));
+    syncAging();
+  }
+  statsTimer += dt;
+  if (statsTimer > 0.25) {
+    statsTimer = 0;
+    $('crYears').textContent = formatYears(state.sim.years);
+    syncGlance();
+    if (activePanel === 'stats') refreshStats(true);
+  }
+}
+
 function update(dt) {
+  if (state.view === 'system') {
+    // The galaxy scene is not on screen; its LOD, lensing and sprite work would
+    // all be wasted, so only the clock and the system scene tick.
+    systemView.update(dt);
+    if (state.stats) advanceSimClock(dt);
+    updateEffects(dt);
+    return;
+  }
+
   updateCamTween(dt);
   controls.update();
 
@@ -1941,19 +2135,7 @@ function update(dt) {
   }
 
   if (state.view === 'sim' && state.stats) {
-    if (state.sim.playing) {
-      const dtYears = dt * SPEEDS[state.sim.speedIdx] * BASE_YEARS_PER_SECOND;
-      state.sim.years += dtYears;
-      handleEvolutionEvents(stepEvolution(state.stats, state.params, dtYears, evolveRng));
-      syncAging();
-    }
-    statsTimer += dt;
-    if (statsTimer > 0.25) {
-      statsTimer = 0;
-      $('crYears').textContent = formatYears(state.sim.years);
-      syncGlance();
-      if (activePanel === 'stats') refreshStats(true);
-    }
+    advanceSimClock(dt);
     updateCollider(dt);
     sweepDiscoveries(dt);
 
@@ -2036,6 +2218,10 @@ window.creator = {
   },
   enterWizard,
   triggerEvent,
+  enterSystem,                               // fly into a stellar system by id
+  exitSystem,
+  focusCodex: focusCodexEntry,
+  get systemView() { return systemView; },
   setSpeed(idx) {
     state.sim.speedIdx = Math.min(Math.max(idx, 0), SPEEDS.length - 1);
     state.sim.playing = true;
@@ -2048,7 +2234,13 @@ window.creator = {
   get discoveries() { return [...state.discoveries]; },
   get bloomPass() { return bloomPass; },
   get lensingPass() { return lensingPass; },
-  placeSystemAt: local => { state.placing = { mode: 'system', config: { type: 'G', count: 1, ageYr: 4.6e9, tempK: 5700, luminosity: 1 } }; placeSystemAt(local); },
+  // Programmatic placement is one-shot; only the palette arms the sticky tool.
+  placeSystemAt: local => {
+    state.placing = { mode: 'system', config: { type: 'G', count: 1, ageYr: 4.6e9, tempK: 5700, luminosity: 1 } };
+    placeSystemAt(local);
+    setPlacing(null);
+  },
+  placeObjectAt: (local, kind) => placeObjectAt(local, kind),
   snapshotState, applyState, store,
 };
 const debugHandle = window.creator;
@@ -2077,9 +2269,11 @@ function destroy() {
   for (const fx of effects) fx.dispose();
   effects.length = 0;
   clearGuests();
+  clearTimeout(transitionTimer);
   if (collider) disposeObject3D(collider.holder);
   for (const tex of textureCache.values()) tex.dispose();
   textureCache.clear();
+  systemView.destroy();
   disposeThreeRuntime({ scene, controls, composer, renderer });
   document.body.classList.remove('cr-ui-hidden');
   if (window.creator === debugHandle) delete window.creator;
