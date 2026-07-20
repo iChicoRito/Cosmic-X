@@ -605,16 +605,19 @@ test('extends the runtime self-check to timeline, selection, bar, and finite met
   });
 });
 
-test('offers the Big Bang mode from the title screen', () => {
+test('offers all three simulation modes from the title screen', () => {
   const title = elementSourceById('title');
   assert.ok(/id=["']startBtn["']/.test(title), 'Missing startBtn in #title');
+  assert.ok(/id=["']creatorBtn["']/.test(title), 'Missing creatorBtn in #title');
   assert.ok(/id=["']bigbangBtn["']/.test(title), 'Missing bigbangBtn in #title');
+  assert.match(title, /As the Gods Will/);
   assert.match(title, /Become the Creator/);
   assert.match(title, /Before the Stars/);
   const titleScreen = section('function setupTitleScreen() {', 'const clock = new THREE.Clock();');
   assertContracts(titleScreen, {
     navTarget: /navigate\(\s*['"]\/big-bang['"]\s*\)/,
     fadeBeforeNav: /fade['"]\)[\s\S]*?classList\.add\(\s*['"]on['"]\s*\)[\s\S]*?navigate\(\s*['"]\/big-bang['"]/,
+    creatorNav: /navigate\(\s*['"]\/creator['"]\s*\)/,
   });
 });
 

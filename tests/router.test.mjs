@@ -29,6 +29,12 @@ test('resolves canonical, legacy, and unknown hash routes', () => {
     view: 'title',
     replace: false,
   });
+  assert.deepEqual(resolveRoute('#/creator'), {
+    path: '/creator',
+    page: 'creator',
+    view: 'title',
+    replace: false,
+  });
   assert.deepEqual(resolveRoute('#/missing'), {
     path: '/',
     page: 'solar',

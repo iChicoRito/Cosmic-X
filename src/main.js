@@ -11,6 +11,7 @@ const router = startHashRouter({
   fade: document.getElementById('routeFade'),
   loaders: {
     solar: () => import('./pages/solar/page.js'),
+    creator: () => import('./pages/creator/page.js'),
     'big-bang': () => import('./pages/big-bang/page.js'),
   },
   onRoute: route => music.setScene(sceneForPath(route.path)),

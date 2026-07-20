@@ -152,7 +152,11 @@ export function solarTemplate() {
     <p class="mode-hint">Choose your simulation mode</p>
     <div class="mode-grid">
       <button id="startBtn" class="mode-card">
-        <span class="mode-txt"><b>Become the Creator</b><span>An immersive journey through the planets and beyond.</span></span>
+        <span class="mode-txt"><b>As the Gods Will</b><span>An immersive journey through the planets and beyond.</span></span>
+        <span class="mode-play" aria-hidden="true"><svg viewBox="0 0 10 12" width="11" height="13"><path d="M0 0 10 6 0 12Z" fill="currentColor"/></svg>PLAY</span>
+      </button>
+      <button id="creatorBtn" class="mode-card">
+        <span class="mode-txt"><b>Become the Creator</b><span>Design, evolve, and rule your own galaxy.</span></span>
         <span class="mode-play" aria-hidden="true"><svg viewBox="0 0 10 12" width="11" height="13"><path d="M0 0 10 6 0 12Z" fill="currentColor"/></svg>PLAY</span>
       </button>
       <button id="bigbangBtn" class="mode-card">

@@ -4214,6 +4214,12 @@ function setupTitleScreen() {
       launch();
     }
   });
+  // Galaxy creation mode is its own page; fade to black, then navigate
+  document.getElementById('creatorBtn').addEventListener('click', () => {
+    if (launching) return;
+    document.getElementById('fade').classList.add('on');
+    setTimeout(() => navigate('/creator'), 520);
+  });
   // Big Bang mode is its own page; fade to black, then navigate
   document.getElementById('bigbangBtn').addEventListener('click', () => {
     if (launching) return;
@@ -4243,7 +4249,8 @@ function setupTitleScreen() {
     document.getElementById('enterBtn').focus();
   });
   for (const [id, title, tag] of [
-    ['startBtn', 'Become the Creator', 'An immersive journey through the planets and beyond.'],
+    ['startBtn', 'As the Gods Will', 'An immersive journey through the planets and beyond.'],
+    ['creatorBtn', 'Become the Creator', 'Design, evolve, and rule your own galaxy.'],
     ['bigbangBtn', 'Before the Stars', 'A Journey from the Big Bang to the Modern Universe'],
   ]) {
     const card = document.getElementById(id);

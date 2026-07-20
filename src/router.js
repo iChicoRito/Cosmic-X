@@ -2,6 +2,7 @@ const ROUTES = new Map([
   ['/', { page: 'solar', view: 'title' }],
   ['/modes', { page: 'solar', view: 'modes' }],
   ['/solar-system', { page: 'solar', view: 'simulation' }],
+  ['/creator', { page: 'creator', view: 'title' }],
   ['/big-bang', { page: 'big-bang', view: 'title' }],
 ]);
 
