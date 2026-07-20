@@ -123,13 +123,91 @@ test('the placement tool stays armed and highlighted across placements', () => {
   assert.match(css, /\.cr-btn\.on\s*\{/);
 });
 
-test('codex entries are focusable buttons that collapse their siblings', () => {
+test('codex entries stay clickable but never hide their descriptions', () => {
   assert.match(runtime, /function focusCodexEntry\(/);
   assert.match(runtime, /createElement\('button'\)[\s\S]*?cr-enc-entry/);
   assert.match(runtime, /dataset\.entry = entry\.id/);
   assert.match(runtime, /scrollIntoView/);
   assert.match(runtime, /state\.codexFocus/);
-  assert.match(css, /\.cr-enc-entry:not\(\.on\) p \{ display: none; \}/);
+  // Task 16 reverted the accordion: the collapse rule must stay gone, or the
+  // wall-of-text fix silently turns back into hidden content.
+  assert.doesNotMatch(css, /\.cr-enc-entry[^{]*:not\(\.on\)[^{]*p\s*\{[^}]*display:\s*none/);
+  assert.doesNotMatch(runtime, /btn\.setAttribute\('aria-expanded'/);
+  // both title and body are always emitted for an unlocked entry
+  assert.match(runtime, /<b>\$\{entry\.title\}<\/b><p>\$\{entry\.body\}<\/p>/);
+});
+
+test('the HUD swaps tool sets when you step inside a system', () => {
+  for (const id of ['crBodiesPanel', 'crViewPanel', 'crCamPanel', 'crBodyList', 'crCamGrid', 'crCamTarget']) {
+    startTagById(template, id);
+  }
+  for (const panel of ['bodies', 'view', 'cam']) {
+    assert.match(template, new RegExp(`data-panel="${panel}"`), `${panel} tab`);
+  }
+  // every panel declares the context it belongs to, and tabs are hidden rather
+  // than merely disabled when they do not apply
+  assert.match(runtime, /where: 'galaxy'/);
+  assert.match(runtime, /where: 'system'/);
+  assert.match(runtime, /where: 'both'/);
+  assert.match(runtime, /function panelInContext\(/);
+  assert.match(runtime, /tab\.hidden = !panelInContext/);
+  // the galaxy-side tab is remembered across a visit
+  assert.match(runtime, /galaxyPanelMemory/);
+});
+
+test('system exploration offers Solar-style camera modes and body controls', () => {
+  const view = read('../src/pages/creator/system-view.js');
+  assert.match(view, /export const CAMERA_MODES/);
+  for (const mode of ['orbit', 'free', 'follow', 'cinematic']) {
+    assert.match(view, new RegExp(`id: '${mode}'`), `camera mode ${mode}`);
+  }
+  assert.match(view, /function updateFree\(/);
+  assert.match(view, /function updateCinematic\(/);
+  assert.match(view, /function setCameraMode\(/);
+  assert.match(view, /listTargets\(\)/);
+  assert.match(view, /setBodyVisible\(/);
+  assert.match(view, /setPlanetScale\(/);
+  assert.match(view, /setOrbitScale\(/);
+  // moons are individually pickable, not decoration
+  assert.match(view, /type: 'moon'/);
+  assert.match(runtime, /function moonFacts\(/);
+  assert.match(runtime, /function buildPlanetExtras\(/);
+  assert.match(css, /\.cr-hab-thumb/);
+  assert.match(css, /\.cr-atmo-bar/);
+});
+
+test('created worlds get procedural surfaces, atmospheres and dusty orbits', () => {
+  const textures = read('../src/pages/creator/planet-textures.js');
+  const view = read('../src/pages/creator/system-view.js');
+  assert.match(textures, /export function createPlanetSurface\(/);
+  assert.match(textures, /export function createStarSurface\(/);
+  assert.match(textures, /export function createRingTexture\(/);
+  assert.match(textures, /export function makeAtmosphere\(/);
+  // seamless wrap comes from the shared helper, not a page-local copy
+  assert.match(textures, /tileFbm/);
+  assert.match(read('../src/shared/procedural-canvas.js'), /export function tileFbm\(/);
+  assert.doesNotMatch(read('../src/pages/solar/runtime.js'), /^function tileFbm\(/m);
+  // orbits are Points with jitter, not a bare LineLoop
+  assert.match(view, /function orbitTrail\(/);
+  assert.match(view, /new THREE\.Points\(/);
+  assert.doesNotMatch(view, /LineLoop/);
+  assert.match(view, /makeAtmosphere\(/);
+});
+
+test('labels ride a CSS2D layer that never eats canvas clicks', () => {
+  assert.match(runtime, /CSS2DRenderer/);
+  assert.match(runtime, /CSS2DObject/);
+  assert.match(runtime, /domElement\.id = 'crLabels'/);
+  assert.match(runtime, /function makeLabel\(/);
+  // systems and placed objects both get a plate
+  assert.match(runtime, /makeLabel\(system\.name/);
+  assert.match(runtime, /makeLabel\(objectLabelFor\(obj\)/);
+  assert.match(runtime, /function objectLabelFor\(/);
+  // the layer follows whichever scene is live
+  assert.match(runtime, /labelRenderer\.render\(systemView\.scene, systemView\.camera\)/);
+  assert.match(runtime, /labelRenderer\.domElement\.remove\(\)/);
+  assert.match(css, /#crLabels[^}]*pointer-events: none/);
+  assert.match(css, /\.cr-label[^}]*pointer-events: none/);
 });
 
 test('glow is dialled back so planetary detail survives the bloom pass', () => {

@@ -23,6 +23,15 @@ export function fbm(x, y, seed, octaves = 4) {
   return sum;
 }
 
+/* Horizontally seamless fbm for textures wrapped around a sphere: cross-fades
+   the sample with one taken a full width to the left, so x=0 and x=W agree and
+   no seam shows down the back of the planet. */
+export function tileFbm(px, py, scale, seed, octaves, W) {
+  const t = px / W;
+  return fbm(px / scale, py / scale, seed, octaves) * (1 - t)
+       + fbm((px - W) / scale, py / scale, seed, octaves) * t;
+}
+
 export function makeCanvas(w, h, documentRef = document) {
   const canvas = documentRef.createElement('canvas');
   canvas.width = w;

@@ -15,8 +15,9 @@ import {
   STAR_TYPES, PLANET_CLASSES, ATMOSPHERES, starByType, createSystem,
   derivePlanet, generatePlanets, habitableZone, systemLuminosity, OBJECT_KINDS,
   objectKind, ENCYCLOPEDIA, encyclopediaEntry, planetColor,
+  atmosphereComposition, ATMOSPHERE_COLORS, habitabilityScore, systemViewLayout,
 } from './systems.js';
-import { createSystemView } from './system-view.js';
+import { CAMERA_MODES, createSystemView } from './system-view.js';
 import { createStore, sanitizeState, serializeState, deserializeState } from './persistence.js';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
@@ -25,6 +26,7 @@ import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
+import { CSS2DRenderer, CSS2DObject } from 'three/addons/renderers/CSS2DRenderer.js';
 
 export function createCreatorRuntime({ root, navigate }) {
 const scope = createResourceScope(window);
@@ -55,7 +57,7 @@ const state = {
   selection: null,            // { type, system?, planet?, object?, sprite? }
   focusSystemId: null,
   uiHidden: false,
-  fx: { quality: 2, bloom: 0.62, starBrightness: 1, showNebulae: true, showClusters: true, twinkle: true },
+  fx: { quality: 2, bloom: 0.62, starBrightness: 1, showNebulae: true, showClusters: true, twinkle: true, showLabels: true },
   codexFocus: null,           // encyclopedia entry id expanded in the Codex panel
 };
 const store = createStore(window.localStorage);
@@ -102,12 +104,33 @@ lensingPass.enabled = false;
 composer.addPass(lensingPass);
 composer.addPass(new OutputPass());
 
+// Name plates for created systems and placed objects. Same CSS2D approach the
+// As the Gods Will sandbox uses, so the shared disposer already knows how to
+// clean the DOM nodes up.
+const labelRenderer = new CSS2DRenderer();
+labelRenderer.setSize(window.innerWidth, window.innerHeight);
+labelRenderer.domElement.id = 'crLabels';
+root.appendChild(labelRenderer.domElement);
+
+function makeLabel(text, offsetY = 0) {
+  const el = document.createElement('div');
+  el.className = 'cr-label';
+  el.textContent = text;
+  const label = new CSS2DObject(el);
+  label.position.set(0, offsetY, 0);
+  return label;
+}
+
 const systemView = createSystemView({
-  renderer, renderPass,
+  renderer, renderPass, scope, makeLabel,
   galaxyScene: scene, galaxyCamera: camera, galaxyControls: controls,
+  onToast: toast,
   onPick: (pick) => {
-    if (pick) selectPick(pick);
-    else {
+    if (pick) {
+      selectPick(pick);
+      syncCamTargetTo(pick.type === 'moon' ? `moon:${pick.moonName}`
+        : pick.type === 'planet' ? `planet:${pick.planetName}` : 'star:0');
+    } else {
       state.selection = null;
       $('crInspector').hidden = true;
     }
@@ -120,6 +143,7 @@ scope.listen(window, 'resize', () => {
   systemView.resize();
   renderer.setSize(window.innerWidth, window.innerHeight);
   composer.setSize(window.innerWidth, window.innerHeight);
+  labelRenderer.setSize(window.innerWidth, window.innerHeight);
 });
 
 /* ================================================================
@@ -475,9 +499,12 @@ function addSystemVisual(system) {
   marker.scale.setScalar(3.2);
   marker.userData.pick = { type: 'system', id: system.id };
   rootObj.add(marker);
+  const label = makeLabel(system.name, 2.6);
+  label.visible = state.fx.showLabels;
+  rootObj.add(label);
   galaxyGroup.add(rootObj);
   pickables.push(marker);
-  systemVisuals.set(system.id, { rootObj, marker, detail: null });
+  systemVisuals.set(system.id, { rootObj, marker, detail: null, label });
 }
 
 function buildSystemDetail(system) {
@@ -691,8 +718,26 @@ function addObjectVisual(obj) {
     pickSprite.userData.pick = { type: 'object', id: obj.id };
     pickables.push(pickSprite);
   }
+  const label = makeLabel(objectLabelFor(obj), S * 0.9);
+  label.visible = state.fx.showLabels;
+  rootObj.add(label);
   galaxyGroup.add(rootObj);
-  objectVisuals.set(obj.id, { rootObj, tick });
+  objectVisuals.set(obj.id, { rootObj, tick, label });
+}
+
+// "Pulsar 3" — the kind plus its ordinal among placed objects of that kind, so
+// a field of nine nebulae is still individually identifiable. Always numbered:
+// labels are written once at placement, so an unnumbered first object would be
+// stranded next to a "Pulsar 2" the moment a second one lands.
+function objectLabelFor(obj) {
+  const ordinal = state.objects.filter(o => o.kind === obj.kind).indexOf(obj) + 1;
+  return `${objectKind(obj.kind)?.name || 'Object'} ${ordinal}`;
+}
+
+function setLabelsVisible(visible) {
+  state.fx.showLabels = visible;
+  labelRenderer.domElement.style.display = visible ? '' : 'none';
+  systemView.setLabelsVisible(visible);
 }
 
 function removeObjectVisual(id) {
@@ -971,7 +1016,7 @@ function enterSim(regen) {
   if (regen) rebuildGalaxy(state.params);
   syncAging();
   syncTransport();
-  openPanel(activePanel);
+  syncSystemChrome();          // first entry establishes the galaxy tool set
   refreshStats();
   refreshEncyclopedia();
   refreshSlots();
@@ -1057,32 +1102,61 @@ function exitSystem() {
   return true;
 }
 
-// Galaxy-only tools have no meaning inside a system; grey them out rather than
-// letting a click arm a placement that can never land.
+// Galaxy tools have no meaning inside a system and exploration tools have none
+// outside one, so the toolbar swaps wholesale rather than greying things out.
+// The tab you were last using in each context is remembered and restored.
 function syncSystemChrome() {
   const inSystem = state.view === 'system';
+  const context = inSystem ? 'system' : 'galaxy';
+
   for (const tab of document.querySelectorAll('.cr-tab')) {
-    if (tab.dataset.panel === 'place' || tab.dataset.panel === 'events') tab.disabled = inSystem;
+    tab.hidden = !panelInContext(tab.dataset.panel, context);
   }
-  if (inSystem && (activePanel === 'place' || activePanel === 'events')) openPanel('stats');
+
+  if (!panelInContext(activePanel, context)) {
+    if (inSystem) {
+      galaxyPanelMemory = activePanel;
+      openPanel('bodies');
+    } else {
+      openPanel(panelInContext(galaxyPanelMemory, 'galaxy') ? galaxyPanelMemory : 'stats');
+    }
+  } else {
+    openPanel(activePanel);          // re-run so context-sensitive bodies refill
+  }
+
+  // Both system lists are rebuilt on every transition, not just when their tab
+  // happens to be open — the Cam select must be populated before it is shown.
+  refreshBodyList();
+  refreshCamTargets();
   syncTransport();
-  hint(inSystem ? 'Click a planet to inspect it — Esc returns to the galaxy' : '');
+  hint(inSystem ? 'Click a body to inspect it — Esc returns to the galaxy' : '');
 }
 
 /* ================================================================
    PANELS
    ================================================================ */
 
+// `where` decides which context a tab belongs to: 'galaxy' tools shape the
+// galaxy, 'system' tools explore one, and 'both' follow you everywhere.
 const PANELS = {
-  build: { el: 'crBuildPanel', title: 'Build' },
-  place: { el: 'crPlacePanel', title: 'Place Objects' },
-  events: { el: 'crEventsPanel', title: 'Cosmic Events' },
-  stats: { el: 'crStatsPanel', title: 'Galaxy Statistics' },
-  encyclopedia: { el: 'crEncPanel', title: 'Cosmic Codex' },
-  save: { el: 'crSavePanel', title: 'Save & Share' },
-  fx: { el: 'crFxPanel', title: 'Graphics' },
+  build: { el: 'crBuildPanel', title: 'Build', where: 'galaxy' },
+  place: { el: 'crPlacePanel', title: 'Place Objects', where: 'galaxy' },
+  events: { el: 'crEventsPanel', title: 'Cosmic Events', where: 'galaxy' },
+  bodies: { el: 'crBodiesPanel', title: 'Bodies', where: 'system' },
+  view: { el: 'crViewPanel', title: 'View', where: 'system' },
+  cam: { el: 'crCamPanel', title: 'Camera', where: 'system' },
+  stats: { el: 'crStatsPanel', title: 'Galaxy Statistics', where: 'both' },
+  encyclopedia: { el: 'crEncPanel', title: 'Cosmic Codex', where: 'both' },
+  save: { el: 'crSavePanel', title: 'Save & Share', where: 'both' },
+  fx: { el: 'crFxPanel', title: 'Graphics', where: 'both' },
 };
 let activePanel = 'stats';
+let galaxyPanelMemory = 'stats';    // tab to restore when leaving a system
+
+function panelInContext(name, context) {
+  const where = PANELS[name]?.where;
+  return where === 'both' || where === context;
+}
 
 // The panel is a persistent right-hand rail (like the As the Gods Will #ui);
 // selecting a tab swaps the active body rather than opening/closing the panel.
@@ -1098,6 +1172,88 @@ function openPanel(name) {
   if (name === 'stats') refreshStats(true);
   if (name === 'encyclopedia') refreshEncyclopedia();
   if (name === 'save') refreshSlots();
+  if (name === 'bodies') refreshBodyList();
+  if (name === 'cam') refreshCamTargets();
+}
+
+/* ================================================================
+   SYSTEM-CONTEXT PANELS
+   ================================================================ */
+
+function refreshBodyList() {
+  const host = $('crBodyList');
+  if (!host) return;
+  host.replaceChildren();
+  if (!systemView.active) {
+    const empty = document.createElement('p');
+    empty.className = 'cr-dim';
+    empty.textContent = 'Enter a stellar system to inspect its worlds.';
+    host.append(empty);
+    return;
+  }
+  for (const body of systemView.listTargets()) {
+    const row = document.createElement('div');
+    row.className = 'cr-body-row';
+
+    const toggle = document.createElement('input');
+    toggle.type = 'checkbox';
+    toggle.checked = body.visible;
+    toggle.title = `Show ${body.name}`;
+    toggle.addEventListener('change', () => systemView.setBodyVisible(body.id, toggle.checked));
+
+    const name = document.createElement('span');
+    name.className = 'cr-body-name';
+    name.textContent = body.name;
+
+    const kind = document.createElement('span');
+    kind.className = 'cr-body-kind';
+    kind.textContent = body.kind;
+
+    const fly = document.createElement('button');
+    fly.type = 'button';
+    fly.className = 'cr-btn small';
+    fly.textContent = 'Fly to';
+    fly.addEventListener('click', () => {
+      systemView.focusTarget(body.id);
+      syncCamTargetTo(body.id);
+    });
+
+    row.append(toggle, name, kind, fly);
+    host.append(row);
+  }
+}
+
+function refreshCamTargets() {
+  const select = $('crCamTarget');
+  if (!select) return;
+  const previous = select.value;
+  select.replaceChildren();
+  const targets = systemView.active ? systemView.listTargets() : [];
+  for (const body of targets) {
+    const option = document.createElement('option');
+    option.value = body.id;
+    option.textContent = `${body.name} · ${body.kind}`;
+    select.append(option);
+  }
+  if (targets.some(t => t.id === previous)) select.value = previous;
+  syncCamButtons();
+}
+
+// Whatever moved the camera — a click in the scene, a Bodies row, a moon row —
+// the Target select has to agree, or it silently lies about where you are.
+function syncCamTargetTo(id) {
+  const select = $('crCamTarget');
+  if (select && [...select.options].some(o => o.value === id)) select.value = id;
+}
+
+function syncCamButtons() {
+  const mode = systemView.cameraMode;
+  for (const btn of document.querySelectorAll('.cr-cam-btn')) {
+    btn.classList.toggle('on', btn.dataset.cam === mode);
+    btn.setAttribute('aria-pressed', String(btn.dataset.cam === mode));
+  }
+  const meta = CAMERA_MODES.find(m => m.id === mode);
+  if (meta) $('crCamHint').textContent = meta.hint;
 }
 
 function buildPanels() {
@@ -1271,6 +1427,39 @@ function buildPanels() {
   bindFxToggle('crFxNebulae', 'showNebulae');
   bindFxToggle('crFxClusters', 'showClusters');
   bindFxToggle('crFxTwinkle', 'twinkle');
+
+  // View panel — presentation of the system you are standing in
+  const viewLabels = $('crViewLabels');
+  viewLabels.checked = state.fx.showLabels;
+  viewLabels.addEventListener('change', () => setLabelsVisible(viewLabels.checked));
+  const viewTrails = $('crViewTrails');
+  viewTrails.addEventListener('change', () => systemView.setTrailsVisible(viewTrails.checked));
+  const viewSliders = $('crViewSliders');
+  const viewDefs = {
+    planetScale: { label: 'World size', min: 0.5, max: 4, step: 0.05, unit: '×', apply: v => systemView.setPlanetScale(v) },
+    orbitScale: { label: 'Orbit spacing', min: 0.6, max: 2, step: 0.05, unit: '×', apply: v => systemView.setOrbitScale(v) },
+  };
+  for (const [key, def] of Object.entries(viewDefs)) {
+    viewSliders.append(sliderRow(key, def, 1, def.apply));
+  }
+
+  // Cam panel — the exploration camera modes
+  const camGrid = $('crCamGrid');
+  for (const mode of CAMERA_MODES) {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'cr-cam-btn';
+    btn.dataset.cam = mode.id;
+    btn.textContent = mode.label;
+    btn.addEventListener('click', () => {
+      systemView.setCameraMode(mode.id);
+      syncCamButtons();
+    });
+    camGrid.append(btn);
+  }
+  $('crCamTarget').addEventListener('change', event => {
+    systemView.focusTarget(event.target.value);
+  });
 }
 
 function rebuildSystemDetail(system) {
@@ -1330,25 +1519,24 @@ function refreshEncyclopedia() {
   let focused = null;
   for (const entry of ENCYCLOPEDIA) {
     const unlocked = state.discoveries.has(entry.id);
-    const open = unlocked && state.codexFocus === entry.id;
+    const active = unlocked && state.codexFocus === entry.id;
     const btn = document.createElement('button');
     btn.type = 'button';
-    btn.className = `cr-enc-entry${unlocked ? '' : ' locked'}${open ? ' on' : ''}`;
+    btn.className = `cr-enc-entry${unlocked ? '' : ' locked'}${active ? ' on' : ''}`;
     btn.dataset.entry = entry.id;
     btn.disabled = !unlocked;
-    btn.setAttribute('aria-expanded', String(open));
     btn.innerHTML = unlocked
       ? `<b>${entry.title}</b><p>${entry.body}</p>`
       : `<b>???</b><p>Discover this phenomenon to decode the entry.</p>`;
     btn.addEventListener('click', () => focusCodexEntry(entry.id));
     host.append(btn);
-    if (open) focused = btn;
+    if (active) focused = btn;
   }
   if (focused) focused.scrollIntoView({ block: 'nearest' });
 }
 
-// Opening an entry collapses the rest, so the panel always reads as one
-// article rather than twenty-four competing for the same column.
+// Highlights an entry and scrolls it into view. Bodies stay visible either
+// way — clicking points you at an entry, it never hides the others.
 function focusCodexEntry(id) {
   if (!state.discoveries.has(id)) return;
   state.codexFocus = state.codexFocus === id ? null : id;
@@ -1604,7 +1792,17 @@ function selectPick(pick, node = null) {
     const planet = system?.planets.find(p => p.name === pick.planetName);
     if (!planet) return;
     state.selection = { type: 'planet', system, planet };
-    showInspector(planet.name, `${PLANET_CLASSES.find(c => c.id === planet.class)?.name || planet.class} planet`, planetFacts(planet), { removable: false, enterable: true });
+    showInspector(planet.name, `${PLANET_CLASSES.find(c => c.id === planet.class)?.name || planet.class} planet`, planetFacts(planet), {
+      removable: false, enterable: true, extras: buildPlanetExtras(planet, system),
+    });
+  } else if (pick.type === 'moon') {
+    const system = state.systems.find(s => s.id === pick.systemId);
+    const planet = system?.planets.find(p => p.name === pick.planetName);
+    const moon = layoutForSystem(system)?.planets
+      .find(p => p.name === pick.planetName)?.moonList.find(m => m.name === pick.moonName);
+    if (!moon) return;
+    state.selection = { type: 'moon', system, planet, moon };
+    showInspector(moon.name, `Moon of ${planet.name}`, moonFacts(moon, planet), { removable: false });
   } else if (pick.type === 'object') {
     const obj = state.objects.find(o => o.id === pick.id);
     if (!obj) return;
@@ -1652,6 +1850,16 @@ function planetFacts(planet) {
   ];
 }
 
+function moonFacts(moon, planet) {
+  return [
+    ['Host', planet.name],
+    ['Radius', `${moon.radius} R⊕`],
+    ['Orbit', `${moon.distance} planet radii`],
+    ['Period', `${moon.periodDays} days`],
+    ['Rotation', 'Tidally locked'],
+  ];
+}
+
 function objectFacts(obj) {
   const kind = objectKind(obj.kind);
   return [
@@ -1660,7 +1868,7 @@ function objectFacts(obj) {
   ];
 }
 
-function showInspector(name, kindLine, facts, { removable, enterable = false }) {
+function showInspector(name, kindLine, facts, { removable, enterable = false, extras = null }) {
   $('crFocusBtn').textContent = enterable && !systemView.active ? 'Enter System' : 'Focus';
   $('crInspName').textContent = name;
   $('crInspKind').textContent = kindLine;
@@ -1674,8 +1882,85 @@ function showInspector(name, kindLine, facts, { removable, enterable = false }) 
     if (value === 'YES') dd.className = 'good';
     dl.append(dt, dd);
   }
+  $('crInspExtra').replaceChildren(...(extras ? [extras] : []));
   $('crRemoveBtn').hidden = !removable;
   $('crInspector').hidden = false;
+}
+
+/* ================================================================
+   DOSSIER EXTRAS — atmosphere mix, habitability, moon roster.
+   Mirrors the As the Gods Will planet dossier so a created world is
+   presented with the same depth as a real one.
+   ================================================================ */
+
+function layoutForSystem(system) {
+  return systemView.active && systemView.system?.id === system.id
+    ? systemView.layout
+    : systemViewLayout(system);
+}
+
+function section(label) {
+  const el = document.createElement('p');
+  el.className = 'cr-insp-section';
+  el.textContent = label;
+  return el;
+}
+
+function buildPlanetExtras(planet, system) {
+  const frag = document.createDocumentFragment();
+
+  frag.append(section('Atmosphere'));
+  const bar = document.createElement('div');
+  bar.className = 'cr-atmo-bar';
+  const key = document.createElement('div');
+  key.className = 'cr-atmo-key';
+  for (const [gas, fraction] of atmosphereComposition(planet.atmosphere)) {
+    const colour = ATMOSPHERE_COLORS[gas] || '#6d8fd6';
+    const slice = document.createElement('span');
+    slice.style.width = `${(fraction * 100).toFixed(1)}%`;
+    slice.style.background = colour;
+    slice.title = `${gas} ${(fraction * 100).toFixed(0)}%`;
+    bar.append(slice);
+
+    const entry = document.createElement('span');
+    const swatch = document.createElement('i');
+    swatch.style.background = colour;
+    entry.append(swatch, `${gas} ${(fraction * 100).toFixed(0)}%`);
+    key.append(entry);
+  }
+  frag.append(bar, key);
+
+  const score = habitabilityScore(planet, system.habitableZone);
+  frag.append(section(`Habitability — ${(score * 100).toFixed(0)}%`));
+  const track = document.createElement('div');
+  track.className = 'cr-hab-track';
+  const thumb = document.createElement('div');
+  thumb.className = 'cr-hab-thumb';
+  thumb.style.width = `${(score * 100).toFixed(1)}%`;
+  track.append(thumb);
+  frag.append(track);
+
+  const moons = layoutForSystem(system)?.planets.find(p => p.name === planet.name)?.moonList ?? [];
+  if (moons.length) {
+    frag.append(section(`Moons — ${moons.length}`));
+    const list = document.createElement('div');
+    list.className = 'cr-moons';
+    for (const moon of moons) {
+      const row = document.createElement('button');
+      row.type = 'button';
+      row.className = 'cr-moon-row';
+      row.innerHTML = `${moon.name}<br><small>${moon.distance.toFixed(1)} planet radii · ${moon.periodDays.toFixed(1)} d</small>`;
+      row.addEventListener('click', () => {
+        if (!systemView.active) return;
+        systemView.focusTarget(`moon:${moon.name}`);
+        syncCamTargetTo(`moon:${moon.name}`);
+        selectPick({ type: 'moon', systemId: system.id, planetName: planet.name, moonName: moon.name });
+      });
+      list.append(row);
+    }
+    frag.append(list);
+  }
+  return frag;
 }
 
 function scanSelection() {
@@ -2011,7 +2296,8 @@ function setupUI() {
   $('crFocusBtn').addEventListener('click', () => {
     const sel = state.selection;
     if (systemView.active) {
-      if (sel?.type === 'planet') systemView.focusPlanet(sel.planet.name);
+      if (sel?.type === 'moon') systemView.focusTarget(`moon:${sel.moon.name}`);
+      else if (sel?.type === 'planet') systemView.focusPlanet(sel.planet.name);
       else systemView.frameSystem();
     } else if (sel?.type === 'system' || sel?.type === 'planet') {
       enterSystem(sel.system.id);
@@ -2191,7 +2477,15 @@ function animate() {
   if (paused || destroyed) return;
   frameId = requestAnimationFrame(animate);
   update(Math.min(clock.getDelta(), 0.1));
+  renderFrame();
+}
+
+// Two scenes share one composer and one label layer; both must be pointed at
+// whichever pair is live or the labels belong to the scene you just left.
+function renderFrame() {
   composer.render();
+  if (systemView.active) labelRenderer.render(systemView.scene, systemView.camera);
+  else labelRenderer.render(scene, camera);
 }
 
 /* ================================================================
@@ -2208,7 +2502,7 @@ animate();
 window.creator = {
   THREE, camera, controls, renderer, scene, state,
   step: dt => update(dt),                    // headless simulation tick
-  render: () => composer.render(),           // headless frame render (verification)
+  render: () => renderFrame(),               // headless frame render (verification)
   generate(type = 'spiral') {                // skip the wizard from the console/tests
     state.params = defaultParams(type);
     state.stats = createStats(state.params);
@@ -2274,6 +2568,7 @@ function destroy() {
   for (const tex of textureCache.values()) tex.dispose();
   textureCache.clear();
   systemView.destroy();
+  labelRenderer.domElement.remove();
   disposeThreeRuntime({ scene, controls, composer, renderer });
   document.body.classList.remove('cr-ui-hidden');
   if (window.creator === debugHandle) delete window.creator;

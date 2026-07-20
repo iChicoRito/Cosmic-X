@@ -26,6 +26,7 @@ import {
 } from '../src/pages/creator/evolution.js';
 import {
   STAR_TYPES,
+  ATMOSPHERES,
   habitableZone,
   orbitalPeriodDays,
   surfaceGravity,
@@ -39,7 +40,13 @@ import {
   encyclopediaEntry,
   planetColor,
   systemViewLayout,
+  ATMOSPHERE_COMPOSITION,
+  atmosphereComposition,
+  habitabilityScore,
+  generateMoons,
+  seededRng,
 } from '../src/pages/creator/systems.js';
+import { tileFbm, fbm } from '../src/shared/procedural-canvas.js';
 import {
   STORE_KEY,
   sanitizeState,
@@ -235,6 +242,101 @@ test('planet colors are stable per class and fall back on habitability', () => {
   assert.equal(planetColor({ class: 'lava' }), 0xe86840);
   assert.equal(planetColor({ class: 'gas-giant' }), planetColor({ class: 'gas-giant' }));
   assert.notEqual(planetColor({ class: 'rocky', habitable: true }), planetColor({ class: 'rocky', habitable: false }));
+});
+
+test('tileFbm wraps without a seam so sphere textures have no visible join', () => {
+  const W = 512;
+  for (const y of [0, 60, 128, 200]) {
+    // the left and right edges of the map meet around the back of the planet
+    const left = tileFbm(0, y, 40, 7, 4, W);
+    const right = tileFbm(W, y, 40, 7, 4, W);
+    assert.ok(Math.abs(left - right) < 1e-9, `seam at y=${y}: ${left} vs ${right}`);
+  }
+  // at x=0 it degenerates to plain fbm, so it is still noise and not a constant
+  assert.equal(tileFbm(0, 10, 40, 7, 4, W), fbm(0, 10 / 40, 7, 4));
+  assert.notEqual(tileFbm(100, 10, 40, 7, 4, W), tileFbm(220, 10, 40, 7, 4, W));
+});
+
+test('atmosphere mixes are complete for every class', () => {
+  for (const atmo of ATMOSPHERES) {
+    const mix = atmosphereComposition(atmo);
+    assert.ok(mix.length >= 1, `${atmo} has gases`);
+    const total = mix.reduce((sum, [, fraction]) => sum + fraction, 0);
+    assert.ok(Math.abs(total - 1) < 1e-6, `${atmo} sums to 1, got ${total}`);
+    for (const [gas, fraction] of mix) {
+      assert.equal(typeof gas, 'string');
+      assert.ok(fraction > 0 && fraction <= 1);
+    }
+  }
+  assert.equal(Object.keys(ATMOSPHERE_COMPOSITION).length, ATMOSPHERES.length);
+  // unknown classes fall back rather than throwing
+  assert.deepEqual(atmosphereComposition('nonsense'), ATMOSPHERE_COMPOSITION.none);
+});
+
+test('habitability score never contradicts the habitable flag', () => {
+  const rng = mulberry32(11);
+  const system = createSystem({ name: 'Meter', pos: [0, 0, 0], stars: [{ type: 'G' }] }, rng);
+  const hz = system.habitableZone;
+
+  const eden = derivePlanet({
+    name: 'Eden', class: 'rocky', radius: 1, mass: 1, atmosphere: 'earthlike',
+    rotationHours: 24, orbitAU: (hz.in + hz.out) / 2, rings: false, moons: 1,
+  }, system);
+  assert.equal(eden.habitable, true);
+  const best = habitabilityScore(eden, hz);
+  assert.ok(best > 0 && best <= 1, `score in range, got ${best}`);
+
+  // the boolean and the meter agree in both directions
+  for (const planet of [
+    derivePlanet({ ...eden, orbitAU: 40 }, system),                    // too far
+    derivePlanet({ ...eden, atmosphere: 'toxic' }, system),            // wrong air
+    derivePlanet({ ...eden, class: 'gas-giant' }, system),             // wrong class
+  ]) {
+    assert.equal(planet.habitable, false);
+    assert.equal(habitabilityScore(planet, hz), 0);
+  }
+
+  // a mid-zone world scores at least as well as one scraping the inner edge
+  const edge = derivePlanet({ ...eden, orbitAU: hz.in }, system);
+  if (edge.habitable) assert.ok(best >= habitabilityScore(edge, hz));
+});
+
+test('generated moons are deterministic, ordered and separated', () => {
+  const planet = { name: 'Kepler II', moons: 4 };
+  const a = generateMoons(planet, seededRng('sys-1:Kepler II'));
+  const b = generateMoons(planet, seededRng('sys-1:Kepler II'));
+  assert.deepEqual(a, b, 'same key yields the same moons');
+  assert.notDeepEqual(a, generateMoons(planet, seededRng('sys-2:Kepler II')));
+
+  assert.equal(a.length, 4);
+  assert.equal(new Set(a.map(m => m.name)).size, 4, 'names are distinct');
+  for (let i = 1; i < a.length; i++) {
+    assert.ok(a[i].distance > a[i - 1].distance, 'orbits are ordered outward');
+    assert.ok(a[i].distance - a[i - 1].distance > a[i].radius + a[i - 1].radius, 'orbits do not overlap');
+  }
+  for (const moon of a) {
+    assert.ok(moon.name.startsWith('Kepler II '));
+    assert.ok(moon.distance > 2 && moon.radius > 0 && moon.periodDays > 0);
+    assert.ok(moon.phase >= 0 && moon.phase < Math.PI * 2);
+  }
+  // every moon generatePlanets can produce (max 9) gets a name
+  assert.equal(generateMoons({ name: 'Giant', moons: 9 }, seededRng('x')).length, 9);
+  assert.ok(generateMoons({ name: 'Many', moons: 99 }, seededRng('x')).length <= 10);
+  assert.deepEqual(generateMoons({ name: 'None', moons: 0 }, seededRng('x')), []);
+});
+
+test('system view layout carries what the scene needs to dress a world', () => {
+  const system = createSystem({ name: 'Dress', pos: [0, 0, 0], stars: [{ type: 'K' }] }, mulberry32(3));
+  const layout = systemViewLayout(system);
+  for (const planet of layout.planets) {
+    assert.ok(ATMOSPHERES.includes(planet.atmosphere), 'atmosphere class is passed through');
+    assert.equal(typeof planet.class, 'string');
+    assert.ok(Array.isArray(planet.moonList));
+    assert.equal(planet.moonList.length, planet.moons, 'roster length is the moon count');
+  }
+  // stable across repeated layout calls for the same system
+  assert.deepEqual(systemViewLayout(system).planets.map(p => p.moonList),
+    layout.planets.map(p => p.moonList));
 });
 
 test('object catalog + encyclopedia cover the task list', () => {

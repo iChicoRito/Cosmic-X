@@ -66,6 +66,85 @@ export function isHabitable(planet, hz) {
     && planet.surfaceTemp > 240 && planet.surfaceTemp < 330;
 }
 
+/* Rough gas mix per atmosphere class, for the dossier's composition bar.
+   Each list sums to 1. */
+export const ATMOSPHERE_COMPOSITION = {
+  none: [['Vacuum', 1]],
+  thin: [['Carbon dioxide', 0.95], ['Nitrogen', 0.03], ['Argon', 0.02]],
+  earthlike: [['Nitrogen', 0.78], ['Oxygen', 0.21], ['Argon', 0.01]],
+  thick: [['Nitrogen', 0.62], ['Carbon dioxide', 0.3], ['Methane', 0.08]],
+  toxic: [['Carbon dioxide', 0.96], ['Sulfur dioxide', 0.03], ['Nitrogen', 0.01]],
+};
+
+export const ATMOSPHERE_COLORS = {
+  Vacuum: '#3a4152',
+  Nitrogen: '#6d8fd6',
+  Oxygen: '#6fc8a8',
+  Argon: '#b98fd6',
+  'Carbon dioxide': '#d69a6f',
+  Methane: '#7fd0d6',
+  'Sulfur dioxide': '#d6cf6f',
+};
+
+export function atmosphereComposition(atmosphere) {
+  return ATMOSPHERE_COMPOSITION[atmosphere] || ATMOSPHERE_COMPOSITION.none;
+}
+
+/* Continuous 0-1 habitability for the dossier meter. Deliberately gated on the
+   same four conditions as isHabitable, so the meter reads above zero exactly
+   when the boolean says yes — the two can never contradict each other. */
+export function habitabilityScore(planet, hz) {
+  if (!isHabitable(planet, hz)) return 0;
+  const t = planet.surfaceTemp;
+  const temp = 1 - Math.abs(t - 288) / (t > 288 ? 42 : 48);
+  const mid = (hz.in + hz.out) / 2;
+  const orbit = 1 - Math.abs(planet.orbitAU - mid) / Math.max((hz.out - hz.in) / 2, 1e-6);
+  const gravity = 1 - Math.min(Math.abs((planet.gravity ?? 1) - 1) / 1.5, 1);
+  const air = planet.atmosphere === 'earthlike' ? 1 : 0.75;
+  const score = 0.45 * temp + 0.25 * orbit + 0.15 * gravity + 0.15 * air;
+  return Math.min(Math.max(score, 0.01), 1);
+}
+
+/* Deterministic rng from a string key, so a body's generated detail is stable
+   across rebuilds without threading a seed through every caller. */
+export function seededRng(key) {
+  let h = 2166136261;
+  for (let i = 0; i < key.length; i++) {
+    h ^= key.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  let a = h >>> 0;
+  return () => {
+    a = (a + 0x6d2b79f5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+// Long enough to name every moon generatePlanets can produce (max 9), so the
+// roster length always equals the planet's moon count — no silent truncation.
+const MOON_LETTERS = ['α', 'β', 'γ', 'δ', 'ε', 'ζ', 'η', 'θ', 'ι', 'κ'];
+
+/* Named moons with ordered, non-overlapping orbits. Planets only carry a moon
+   count; the dossier and the scene both need individuals. */
+export function generateMoons(planet, rng = Math.random) {
+  const count = Math.min(Math.max(planet.moons | 0, 0), MOON_LETTERS.length);
+  const moons = [];
+  let distance = 2.6;                    // in planet radii
+  for (let i = 0; i < count; i++) {
+    distance *= 1.35 + rng() * 0.5;      // strictly increasing, always separated
+    moons.push({
+      name: `${planet.name} ${MOON_LETTERS[i]}`,
+      distance: Number(distance.toFixed(3)),
+      radius: Number((0.08 + rng() * 0.22).toFixed(3)),
+      periodDays: Number((0.35 * Math.pow(distance, 1.5)).toFixed(2)),
+      phase: Number((rng() * Math.PI * 2).toFixed(4)),
+    });
+  }
+  return moons;
+}
+
 /* Recompute every derived planet field from its configurable ones. */
 export function derivePlanet(planet, system) {
   const lum = systemLuminosity(system);
@@ -177,16 +256,23 @@ export function systemViewLayout(system) {
   const orbitOf = au => starRadius * 2.2 + Math.log10(1 + Math.max(au, 0) * 9) * 11;
   // Bodies are deliberately oversized against their orbits. At true scale a
   // whole system in frame renders every planet sub-pixel.
-  const planets = system.planets.map(planet => ({
-    name: planet.name,
-    radius: Math.min(0.5 + planet.radius * 0.35, starRadius * 0.9),
-    orbit: orbitOf(planet.orbitAU),
-    periodDays: Math.max(planet.periodDays, 10),
-    moons: Math.min(planet.moons, 5),
-    rings: !!planet.rings,
-    habitable: !!planet.habitable,
-    color: planetColor(planet),
-  }));
+  const planets = system.planets.map(planet => {
+    // Seeded off the ids so a world keeps the same moons across rebuilds.
+    const moonList = generateMoons(planet, seededRng(`${system.id}:${planet.name}`));
+    return {
+      name: planet.name,
+      class: planet.class,
+      atmosphere: planet.atmosphere,
+      radius: Math.min(0.5 + planet.radius * 0.35, starRadius * 0.9),
+      orbit: orbitOf(planet.orbitAU),
+      periodDays: Math.max(planet.periodDays, 10),
+      moons: moonList.length,        // the roster is the only moon count
+      moonList,
+      rings: !!planet.rings,
+      habitable: !!planet.habitable,
+      color: planetColor(planet),
+    };
+  });
   const hz = system.habitableZone;
   const belt = system.belt ? orbitOf(hz.out * 2.4) : null;
   const edge = Math.max(planets.length ? planets[planets.length - 1].orbit : orbitOf(hz.out), belt ?? 0);

@@ -1,5 +1,5 @@
 import { createPostprocessingShaders } from '../../shared/postprocessing-shaders.js';
-import { fbm, hash2, makeCanvas, valueNoise } from '../../shared/procedural-canvas.js';
+import { fbm, hash2, makeCanvas, tileFbm, valueNoise } from '../../shared/procedural-canvas.js';
 import { paintRangeFill } from '../../shared/range.js';
 import { createSolarConfig, GM_SUN, QUALITY, TEX_BASE } from './config.js';
 import { createSolarData } from './data.js';
@@ -65,12 +65,6 @@ const {
 /* ================================================================
    PROCEDURAL TEXTURES (canvas value-noise — instant + offline fallback)
    ================================================================ */
-
-function tileFbm(px, py, scale, seed, octaves, W) {
-  const t = px / W;
-  return fbm(px / scale, py / scale, seed, octaves) * (1 - t)
-       + fbm((px - W) / scale, py / scale, seed, octaves) * t;
-}
 
 const cA = new THREE.Color(), cB = new THREE.Color(), cC = new THREE.Color();
 

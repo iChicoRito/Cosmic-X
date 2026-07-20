@@ -60,6 +60,9 @@ export function creatorTemplate() {
       <button class="cr-tab" type="button" data-panel="build">Build</button>
       <button class="cr-tab" type="button" data-panel="place">Place</button>
       <button class="cr-tab" type="button" data-panel="events">Events</button>
+      <button class="cr-tab" type="button" data-panel="bodies">Bodies</button>
+      <button class="cr-tab" type="button" data-panel="view">View</button>
+      <button class="cr-tab" type="button" data-panel="cam">Cam</button>
       <button class="cr-tab" type="button" data-panel="stats">Stats</button>
       <button class="cr-tab" type="button" data-panel="encyclopedia">Codex</button>
       <button class="cr-tab" type="button" data-panel="save">Save</button>
@@ -91,6 +94,23 @@ export function creatorTemplate() {
     <div class="cr-panel-body" id="crEventsPanel" hidden>
       <p class="cr-dim">Bend the cosmos to your will.</p>
       <div id="crEventGrid" class="cr-choice-grid"></div>
+    </div>
+
+    <div class="cr-panel-body" id="crBodiesPanel" hidden>
+      <p class="cr-dim">Every world in this system. Hide one, or fly to it.</p>
+      <div id="crBodyList" class="cr-bodies"></div>
+    </div>
+
+    <div class="cr-panel-body" id="crViewPanel" hidden>
+      <div class="cr-field cr-check"><label for="crViewLabels">Labels</label><input type="checkbox" id="crViewLabels" checked></div>
+      <div class="cr-field cr-check"><label for="crViewTrails">Orbit trails</label><input type="checkbox" id="crViewTrails" checked></div>
+      <div id="crViewSliders" class="cr-sliders"></div>
+    </div>
+
+    <div class="cr-panel-body" id="crCamPanel" hidden>
+      <div id="crCamGrid" class="cr-cam-grid"></div>
+      <div class="cr-field"><label for="crCamTarget">Target</label><select id="crCamTarget"></select></div>
+      <p id="crCamHint" class="cr-note"></p>
     </div>
 
     <div class="cr-panel-body" id="crStatsPanel" hidden>
@@ -140,6 +160,7 @@ export function creatorTemplate() {
     </header>
     <p id="crInspKind" class="cr-dim"></p>
     <dl id="crInspFacts" class="cr-stats"></dl>
+    <div id="crInspExtra"></div>
     <div class="cr-insp-actions">
       <button id="crScanBtn" class="cr-btn primary" type="button">Scan</button>
       <button id="crFocusBtn" class="cr-btn" type="button">Focus</button>

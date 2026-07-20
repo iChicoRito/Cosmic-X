@@ -25,6 +25,20 @@ body {
 
 canvas.cr-canvas { position: fixed; inset: 0; display: block; }
 
+/* CSS2DRenderer overlay — must never eat pointer events meant for the canvas */
+#crLabels { position: fixed; top: 0; left: 0; pointer-events: none; z-index: 1; }
+.cr-label {
+  color: #cfd8e3;
+  font: 11px/1 var(--font);
+  letter-spacing: .12em;
+  text-transform: uppercase;
+  text-shadow: 0 0 4px #000, 0 0 8px #000;
+  opacity: .85;
+  pointer-events: none;
+  user-select: none;
+  white-space: nowrap;
+}
+
 /* Following As the Gods Will: surfaces (panels, buttons, inputs, cards, bars)
    stay square; only sliders, switches and badge-like pips are rounded. */
 .glass {
@@ -323,8 +337,8 @@ canvas.cr-canvas { position: fixed; inset: 0; display: block; }
 .cr-stats dd.good { color: #9be8b8; }
 
 .cr-enc { display: grid; gap: 8px; }
-/* Codex entries are buttons: titles only until one is opened, so 24 entries
-   read as a list instead of a wall of prose. */
+/* Codex entries are buttons so an entry can be pointed at, but title and body
+   both stay visible — nothing is ever hidden behind a click. */
 .cr-enc-entry {
   appearance: none;
   display: block;
@@ -344,7 +358,51 @@ canvas.cr-canvas { position: fixed; inset: 0; display: block; }
 .cr-enc-entry.on { border-color: rgba(138, 184, 255, 0.55); background: rgba(138, 184, 255, 0.12); }
 .cr-enc-entry b { display: block; font-family: var(--font-display); font-size: 13px; font-weight: 600; }
 .cr-enc-entry p { margin: 4px 0 0; font-size: 11px; color: var(--muted); line-height: 1.45; }
-.cr-enc-entry:not(.on) p { display: none; }
+
+/* ---- system-context panels (Bodies / View / Cam) ---- */
+.cr-bodies { display: grid; gap: 6px; }
+.cr-body-row {
+  display: flex; align-items: center; gap: 8px;
+  border: 1px solid var(--glass-border); padding: 7px 10px;
+}
+.cr-body-row .cr-body-name { flex: 1; min-width: 0; font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cr-body-row .cr-body-kind { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: .08em; }
+.cr-body-row input { accent-color: var(--accent); width: 15px; height: 15px; }
+
+.cr-cam-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.cr-cam-btn {
+  appearance: none;
+  border: 1px solid var(--glass-border);
+  background: var(--glass-soft);
+  color: var(--fg);
+  font: 600 12px/1.3 var(--font);
+  padding: 10px 8px;
+  cursor: pointer;
+  text-align: center;
+  transition: border-color 0.18s ease, background 0.18s ease;
+}
+.cr-cam-btn:hover { background: var(--glass-hover); }
+.cr-cam-btn.on { border-color: rgba(138, 184, 255, 0.55); background: rgba(138, 184, 255, 0.12); }
+.cr-cam-btn:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
+.cr-note { margin: 10px 0 0; font-size: 11px; color: var(--muted); line-height: 1.45; }
+
+/* ---- dossier extras (atmosphere bar, habitability meter, moon rows) ---- */
+.cr-atmo-bar { display: flex; height: 8px; margin: 4px 0 6px; overflow: hidden; }
+.cr-atmo-bar span { display: block; height: 100%; }
+.cr-atmo-key { display: flex; flex-wrap: wrap; gap: 4px 10px; font-size: 10px; color: var(--muted); }
+.cr-atmo-key i { display: inline-block; width: 7px; height: 7px; margin-right: 4px; font-style: normal; }
+.cr-hab-track { height: 8px; background: rgba(255, 255, 255, 0.08); margin: 4px 0 6px; }
+.cr-hab-thumb { height: 100%; background: linear-gradient(90deg, #d69a6f, #9be8b8); }
+.cr-moons { display: grid; gap: 5px; margin-top: 6px; }
+.cr-moon-row {
+  appearance: none; width: 100%; text-align: left;
+  border: 1px solid var(--glass-border); background: var(--glass-soft);
+  color: var(--fg); font: 500 11px/1.3 var(--font); padding: 6px 9px; cursor: pointer;
+}
+.cr-moon-row:hover { background: var(--glass-hover); }
+.cr-moon-row:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
+.cr-moon-row small { color: var(--muted); }
+.cr-insp-section { margin: 10px 0 0; font: 600 11px/1 var(--font-display); letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
 
 .cr-slots { list-style: none; margin: 10px 0; padding: 0; display: grid; gap: 6px; }
 .cr-slots li { display: flex; align-items: center; gap: 8px; border: 1px solid var(--glass-border); padding: 8px 10px; }

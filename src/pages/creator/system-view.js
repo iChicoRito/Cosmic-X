@@ -1,7 +1,10 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-import { fbm, makeCanvas } from '../../shared/procedural-canvas.js';
+import { makeCanvas } from '../../shared/procedural-canvas.js';
 import { systemViewLayout } from './systems.js';
+import {
+  ATMOSPHERE_SHELL, createPlanetSurface, createRingTexture, createStarSurface, makeAtmosphere,
+} from './planet-textures.js';
 
 const TAU = Math.PI * 2;
 
@@ -15,7 +18,16 @@ const TAU = Math.PI * 2;
    scene, so the two never fight over the same objects.
    ================================================================ */
 
-export function createSystemView({ renderer, renderPass, galaxyScene, galaxyCamera, galaxyControls, onPick }) {
+export const CAMERA_MODES = [
+  { id: 'orbit', label: 'Orbit', hint: 'Drag to rotate, scroll to zoom around the focused body.' },
+  { id: 'free', label: 'Free', hint: 'WASD to fly, Space/Ctrl for up and down, drag to look. Shift boosts.' },
+  { id: 'follow', label: 'Follow', hint: 'Locks to the selected body and rides its orbit.' },
+  { id: 'cinematic', label: 'Cinematic', hint: 'Hands-off tour that drifts between the worlds.' },
+];
+
+export function createSystemView({
+  renderer, renderPass, scope, galaxyScene, galaxyCamera, galaxyControls, makeLabel, onPick, onToast,
+}) {
   const scene = new THREE.Scene();
   scene.background = new THREE.Color(0x03040a);
 
@@ -28,7 +40,6 @@ export function createSystemView({ renderer, renderPass, galaxyScene, galaxyCame
   // Starless void would read as a bug, so keep a faint backdrop shell.
   const backdrop = buildBackdrop();
   scene.add(backdrop);
-
   const ambient = new THREE.AmbientLight(0xaebcd8, 0.16);
   scene.add(ambient);
 
@@ -37,45 +48,31 @@ export function createSystemView({ renderer, renderPass, galaxyScene, galaxyCame
   let layout = null;
   let system = null;
   let planetNodes = [];
+  let moonNodes = [];
   let cometNodes = [];
-  let lights = [];
+  let trailNodes = [];
+  let starNodes = [];
+  let coronas = [];
   let tween = null;
+  let active = false;
+  let elapsed = 0;
+
   let follow = null;
   const followOffset = new THREE.Vector3();
   const followPrev = new THREE.Vector3();
   const followNow = new THREE.Vector3();
   const followStep = new THREE.Vector3();
 
-  /* ---- procedural surfaces -------------------------------------- */
+  // View settings mirrored by the View tab.
+  const view = { labels: true, trails: true, planetScale: 1, orbitScale: 1 };
 
-  // One 256px fbm surface per planet class + seed. Cached because a system
-  // rebuild (adding a planet) would otherwise regenerate every sibling.
-  function planetTexture(key, color) {
-    if (textures.has(key)) return textures.get(key);
-    const S = 256;
-    const [canvas, ctx] = makeCanvas(S, S);
-    const base = new THREE.Color(color);
-    const img = ctx.createImageData(S, S);
-    const seed = hashSeed(key);
-    for (let y = 0; y < S; y++) {
-      // Latitude banding: gas giants get stripes, rocky worlds get blotches.
-      const lat = (y / S - 0.5) * 2;
-      for (let x = 0; x < S; x++) {
-        const n = fbm(x / 30, y / 30, seed, 4);
-        const band = 0.5 + Math.sin(lat * 7 + n * 2.4) * 0.5;
-        const shade = 0.62 + n * 0.5 + band * 0.16;
-        const i = (y * S + x) * 4;
-        img.data[i] = clamp255(base.r * 255 * shade);
-        img.data[i + 1] = clamp255(base.g * 255 * shade);
-        img.data[i + 2] = clamp255(base.b * 255 * shade);
-        img.data[i + 3] = 255;
-      }
-    }
-    ctx.putImageData(img, 0, 0);
-    const tex = new THREE.CanvasTexture(canvas);
-    tex.colorSpace = THREE.SRGBColorSpace;
-    textures.set(key, tex);
-    return tex;
+  /* ---- cached textures ------------------------------------------- */
+
+  const anisotropy = renderer.capabilities.getMaxAnisotropy();
+
+  function cached(key, make) {
+    if (!textures.has(key)) textures.set(key, make());
+    return textures.get(key);
   }
 
   function glowSprite(color, scale) {
@@ -118,32 +115,52 @@ export function createSystemView({ renderer, renderPass, galaxyScene, galaxyCame
     return points;
   }
 
-  /* ---- build / teardown of the entered system -------------------- */
+  /* ---- build ------------------------------------------------------ */
+
+  function attachLabel(parent, text, offsetY) {
+    if (!makeLabel) return null;
+    const label = makeLabel(text, offsetY);
+    label.visible = view.labels;
+    parent.add(label);
+    return label;
+  }
 
   function build(target) {
     clearGroup();
     system = target;
     layout = systemViewLayout(target);
     group = new THREE.Group();
-    planetNodes = [];
-    cometNodes = [];
-    lights = [];
+    planetNodes = []; moonNodes = []; cometNodes = []; trailNodes = []; starNodes = []; coronas = [];
 
     layout.stars.forEach((star, i) => {
       const mesh = new THREE.Mesh(
-        new THREE.SphereGeometry(star.radius, 32, 32),
-        new THREE.MeshBasicMaterial({ color: star.color }));
+        new THREE.SphereGeometry(star.radius, 40, 32),
+        new THREE.MeshBasicMaterial({
+          map: cached(`star:${target.id}:${i}`, () => createStarSurface(star.color, 900 + i, { anisotropy })),
+        }));
       mesh.position.x = star.offset;
       mesh.userData.pick = { type: 'system', id: target.id };
-      mesh.add(glowSprite(star.color, star.radius * 3));
+      mesh.userData.targetId = `star:${i}`;
+      mesh.userData.spin = 0.02;
+
+      // Corona: two breathing shells. Kept dim on purpose — the task-15 glow
+      // budget exists because fat halos are what buried the planets.
+      for (const [factor, opacity] of [[2.6, 0.32], [4.2, 0.14]]) {
+        const sprite = glowSprite(star.color, star.radius * factor);
+        sprite.material.opacity = opacity;
+        sprite.userData.breathe = { base: star.radius * factor, phase: i * 1.7 };
+        mesh.add(sprite);
+        coronas.push(sprite);
+      }
+      attachLabel(mesh, i === 0 ? target.name : `${target.name} ${String.fromCharCode(66 + i)}`, star.radius + 1.4);
       group.add(mesh);
+      starNodes.push(mesh);
 
       // decay 0: inverse-square across a 60-unit system would leave the outer
       // worlds black. Terminators come from surface normals, not falloff.
       const light = new THREE.PointLight(star.color, i === 0 ? 2.2 : 1.1, 0, 0);
       light.position.copy(mesh.position);
       group.add(light);
-      lights.push(light);
     });
 
     const hz = layout.habitableZone;
@@ -159,38 +176,62 @@ export function createSystemView({ renderer, renderPass, galaxyScene, galaxyCame
     group.add(hzMesh);
 
     for (const planet of layout.planets) {
-      group.add(orbitLine(planet.orbit));
+      const trail = orbitTrail(planet.orbit);
+      trail.visible = view.trails;
+      group.add(trail);
+      trailNodes.push(trail);
+
       const surface = new THREE.MeshStandardMaterial({
-        map: planetTexture(`${target.id}:${planet.name}`, planet.color),
+        map: cached(`surface:${target.id}:${planet.name}`,
+          () => createPlanetSurface(planet.class, hashSeed(target.id + planet.name), { anisotropy })),
         roughness: 1, metalness: 0,
       });
       surface.userData.shared = true;   // map lives in the cache, not this material
-      const mesh = new THREE.Mesh(new THREE.SphereGeometry(planet.radius, 32, 24), surface);
+      const mesh = new THREE.Mesh(new THREE.SphereGeometry(planet.radius, 40, 28), surface);
       mesh.userData.pick = { type: 'planet', systemId: target.id, planetName: planet.name };
-      mesh.userData.orbit = { r: planet.orbit, angle: Math.random() * TAU, period: planet.periodDays };
+      mesh.userData.targetId = `planet:${planet.name}`;
+      mesh.userData.orbit = { base: planet.orbit, r: planet.orbit, angle: Math.random() * TAU, period: planet.periodDays };
+      mesh.userData.spin = 0.25;
       mesh.rotation.z = 0.15;
+      mesh.scale.setScalar(view.planetScale);
+
+      const shell = ATMOSPHERE_SHELL[planet.atmosphere];
+      if (shell) mesh.add(makeAtmosphere(planet.radius, shell.color, shell.intensity));
 
       if (planet.rings) {
-        const rings = new THREE.Mesh(
-          new THREE.RingGeometry(planet.radius * 1.5, planet.radius * 2.4, 64),
-          new THREE.MeshBasicMaterial({
-            color: 0xcbb692, transparent: true, opacity: 0.42,
-            side: THREE.DoubleSide, depthWrite: false,
-          }));
+        const inner = planet.radius * 1.5, outer = planet.radius * 2.4;
+        const geo = new THREE.RingGeometry(inner, outer, 128, 1);
+        radialiseRingUVs(geo, inner, outer);
+        const rings = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({
+          map: cached('ring', () => createRingTexture()),
+          transparent: true, side: THREE.DoubleSide, depthWrite: false, alphaTest: 0.05,
+        }));
+        rings.material.userData.shared = true;
         rings.rotation.x = -Math.PI / 2.6;
         mesh.add(rings);
       }
-      for (let m = 0; m < planet.moons; m++) {
-        const moon = new THREE.Mesh(
-          new THREE.SphereGeometry(planet.radius * 0.2, 16, 12),
+
+      for (const moon of planet.moonList) {
+        const moonMesh = new THREE.Mesh(
+          new THREE.SphereGeometry(Math.max(planet.radius * moon.radius * 0.9, planet.radius * 0.12), 20, 14),
           new THREE.MeshStandardMaterial({ color: 0x9aa0ad, roughness: 1, metalness: 0 }));
-        moon.userData.moon = {
-          r: planet.radius * (2.8 + m * 0.9),
-          angle: (m / planet.moons) * TAU,
-          speed: 0.6 - m * 0.08,
+        // The mesh sits inside a pivot and is never counter-rotated, which
+        // gives tidal locking for free.
+        moonMesh.userData.moon = {
+          r: planet.radius * moon.distance,
+          angle: moon.phase,
+          speed: TAU / Math.max(moon.periodDays, 0.5) * 0.35,
         };
-        mesh.add(moon);
+        moonMesh.userData.pick = {
+          type: 'moon', systemId: target.id, planetName: planet.name, moonName: moon.name,
+        };
+        moonMesh.userData.targetId = `moon:${moon.name}`;
+        attachLabel(moonMesh, moon.name, moon.radius + 0.4);
+        mesh.add(moonMesh);
+        moonNodes.push(moonMesh);
       }
+
+      attachLabel(mesh, planet.name, planet.radius + 1.1);
       group.add(mesh);
       planetNodes.push(mesh);
     }
@@ -200,6 +241,7 @@ export function createSystemView({ renderer, renderPass, galaxyScene, galaxyCame
     for (let c = 0; c < layout.comets; c++) {
       const comet = glowSprite(0xdcefff, layout.starRadius * 0.5);
       comet.userData.orbit = {
+        base: layout.edge * (1.05 + c * 0.09),
         r: layout.edge * (1.05 + c * 0.09),
         angle: Math.random() * TAU,
         period: 2400 + c * 900,
@@ -209,18 +251,48 @@ export function createSystemView({ renderer, renderPass, galaxyScene, galaxyCame
     }
 
     scene.add(group);
+    applyOrbitScale();
     layoutOrbits(0);
   }
 
-  function orbitLine(r) {
-    const pts = [];
-    for (let i = 0; i <= 128; i++) {
-      const a = (i / 128) * TAU;
-      pts.push(new THREE.Vector3(Math.cos(a) * r, 0, Math.sin(a) * r));
+  // The ring strip is a 512x32 texture sampled across the ring's WIDTH, so the
+  // default annular UVs have to be rewritten radially or it smears round it.
+  function radialiseRingUVs(geo, inner, outer) {
+    const pos = geo.attributes.position;
+    const uv = geo.attributes.uv;
+    const v = new THREE.Vector3();
+    for (let i = 0; i < pos.count; i++) {
+      v.fromBufferAttribute(pos, i);
+      uv.setXY(i, (v.length() - inner) / (outer - inner), 1);
     }
-    return new THREE.LineLoop(
-      new THREE.BufferGeometry().setFromPoints(pts),
-      new THREE.LineBasicMaterial({ color: 0x5a6d92, transparent: true, opacity: 0.5 }));
+    uv.needsUpdate = true;
+  }
+
+  /* Orbits are drawn as jittered Points rather than a line — the scatter is
+     what reads as a dusty orbital lane instead of a CAD circle. */
+  function orbitTrail(r) {
+    const n = 900;
+    const pos = new Float32Array(n * 3);
+    fillTrail(pos, r);
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+    const points = new THREE.Points(geo, new THREE.PointsMaterial({
+      color: 0x8a9ec4, size: 0.09, transparent: true, opacity: 0.5,
+      blending: THREE.AdditiveBlending, depthWrite: false,
+    }));
+    points.userData.radius = r;
+    return points;
+  }
+
+  function fillTrail(arr, r) {
+    const n = arr.length / 3;
+    const jitter = Math.max(r * 0.006, 0.03);
+    for (let i = 0; i < n; i++) {
+      const a = (i / n) * TAU;
+      arr[i * 3] = Math.cos(a) * r + (Math.random() - 0.5) * jitter * 2;
+      arr[i * 3 + 1] = (Math.random() - 0.5) * jitter * 1.6;
+      arr[i * 3 + 2] = Math.sin(a) * r + (Math.random() - 0.5) * jitter * 2;
+    }
   }
 
   function buildBelt(radius) {
@@ -248,12 +320,10 @@ export function createSystemView({ renderer, renderPass, galaxyScene, galaxyCame
     scene.remove(group);
     disposeTree(group);
     group = null;
-    planetNodes = [];
-    cometNodes = [];
-    lights = [];
+    planetNodes = []; moonNodes = []; cometNodes = []; trailNodes = []; starNodes = []; coronas = [];
   }
 
-  /* ---- motion ---------------------------------------------------- */
+  /* ---- motion ------------------------------------------------------ */
 
   function layoutOrbits(dt) {
     // Orbital rates are cosmetic: real periods span four orders of magnitude,
@@ -262,23 +332,133 @@ export function createSystemView({ renderer, renderPass, galaxyScene, galaxyCame
       const orbit = node.userData.orbit;
       orbit.angle += dt * (TAU / orbit.period) * 90;
       node.position.set(Math.cos(orbit.angle) * orbit.r, 0, Math.sin(orbit.angle) * orbit.r);
-      node.rotation.y += dt * 0.25;
-      for (const child of node.children) {
-        const moon = child.userData.moon;
-        if (!moon) continue;
-        moon.angle += dt * moon.speed;
-        child.position.set(Math.cos(moon.angle) * moon.r, 0, Math.sin(moon.angle) * moon.r);
-      }
+      node.rotation.y += dt * node.userData.spin;
     }
+    for (const moon of moonNodes) {
+      const m = moon.userData.moon;
+      m.angle += dt * m.speed;
+      moon.position.set(Math.cos(m.angle) * m.r, 0, Math.sin(m.angle) * m.r);
+    }
+    for (const star of starNodes) star.rotation.y += dt * star.userData.spin;
     for (const comet of cometNodes) {
       const orbit = comet.userData.orbit;
       orbit.angle += dt * (TAU / orbit.period) * 90;
       comet.position.set(Math.cos(orbit.angle) * orbit.r, orbit.r * 0.06, Math.sin(orbit.angle) * orbit.r);
     }
+    for (const sprite of coronas) {
+      const b = sprite.userData.breathe;
+      sprite.scale.setScalar(b.base * (1 + Math.sin(elapsed * 0.8 + b.phase) * 0.04));
+    }
   }
 
-  // A focused planet keeps orbiting, so the flight has to chase it and the
-  // camera has to ride along once it arrives — otherwise it lands on a ghost.
+  function applyOrbitScale() {
+    for (const node of planetNodes) {
+      node.userData.orbit.r = node.userData.orbit.base * view.orbitScale;
+    }
+    for (const comet of cometNodes) {
+      comet.userData.orbit.r = comet.userData.orbit.base * view.orbitScale;
+    }
+    for (const trail of trailNodes) {
+      const r = trail.userData.radius * view.orbitScale;
+      fillTrail(trail.geometry.attributes.position.array, r);
+      trail.geometry.attributes.position.needsUpdate = true;
+    }
+  }
+
+  /* ---- camera ------------------------------------------------------ */
+
+  let mode = 'orbit';
+  const keys = new Set();
+  let looking = false;
+  let lookPrev = null;
+  let cineTimer = 0;
+  let cineIndex = 0;
+  const cineTarget = new THREE.Vector3();
+  const cineLook = new THREE.Vector3();
+
+  if (scope) {
+    scope.listen(window, 'keydown', event => {
+      if (!active || mode !== 'free') return;
+      if (event.target instanceof HTMLInputElement || event.target instanceof HTMLSelectElement) return;
+      keys.add(event.code);
+    });
+    scope.listen(window, 'keyup', event => keys.delete(event.code));
+    scope.listen(window, 'blur', () => { keys.clear(); looking = false; });
+    scope.listen(renderer.domElement, 'pointerdown', event => {
+      if (active && mode === 'free') { looking = true; lookPrev = { x: event.clientX, y: event.clientY }; }
+    });
+    scope.listen(window, 'pointerup', () => { looking = false; lookPrev = null; });
+    scope.listen(renderer.domElement, 'pointermove', event => {
+      if (!active || mode !== 'free' || !looking || !lookPrev) return;
+      const dx = (event.clientX - lookPrev.x) * 0.0035;
+      const dy = (event.clientY - lookPrev.y) * 0.0035;
+      lookPrev = { x: event.clientX, y: event.clientY };
+      const euler = new THREE.Euler().setFromQuaternion(camera.quaternion, 'YXZ');
+      euler.y -= dx;
+      euler.x = THREE.MathUtils.clamp(euler.x - dy, -1.45, 1.45);
+      camera.quaternion.setFromEuler(euler);
+    });
+  }
+
+  function setCameraMode(next) {
+    if (!CAMERA_MODES.some(m => m.id === next)) return mode;
+    // Follow needs something to follow; refuse rather than sit on a dead lock.
+    if (next === 'follow' && !follow && !planetNodes.length) {
+      onToast?.('Select a body to follow first');
+      return mode;
+    }
+    mode = next;
+    tween = null;
+    if (next === 'follow' && !follow && planetNodes.length) beginFollow(planetNodes[0]);
+    if (next === 'cinematic') { cineTimer = 0; cineIndex = 0; follow = null; }
+    controls.enabled = next === 'orbit' || next === 'follow';
+    if (next === 'free') keys.clear();
+    return mode;
+  }
+
+  function beginFollow(node) {
+    follow = node;
+    node.getWorldPosition(followPrev);
+    const radius = node.geometry.parameters.radius * (node.parent === group ? view.planetScale : 1);
+    followOffset.set(radius * 4, radius * 2.6, radius * 5.5);
+  }
+
+  function updateFree(dt) {
+    const boost = keys.has('ShiftLeft') || keys.has('ShiftRight') ? 3 : 1;
+    const speed = Math.max(layout ? layout.framing * 0.25 : 20, 6) * boost * dt;
+    const dir = new THREE.Vector3();
+    const fwd = new THREE.Vector3();
+    camera.getWorldDirection(fwd);
+    const right = new THREE.Vector3().crossVectors(fwd, camera.up).normalize();
+    if (keys.has('KeyW')) dir.add(fwd);
+    if (keys.has('KeyS')) dir.sub(fwd);
+    if (keys.has('KeyD')) dir.add(right);
+    if (keys.has('KeyA')) dir.sub(right);
+    if (keys.has('Space')) dir.y += 1;
+    if (keys.has('ControlLeft') || keys.has('ControlRight')) dir.y -= 1;
+    if (dir.lengthSq()) camera.position.addScaledVector(dir.normalize(), speed);
+  }
+
+  function updateCinematic(dt) {
+    const stops = [...planetNodes, ...starNodes];
+    if (!stops.length) return;
+    cineTimer -= dt;
+    if (cineTimer <= 0) { cineTimer = 8; cineIndex = (cineIndex + 1) % stops.length; }
+    const node = stops[cineIndex];
+    node.getWorldPosition(cineLook);
+    const radius = node.geometry.parameters.radius;
+    const sweep = Math.max(radius * 6, 9);
+    cineTarget.set(
+      cineLook.x + Math.cos(elapsed * 0.22) * sweep,
+      cineLook.y + sweep * 0.45,
+      cineLook.z + Math.sin(elapsed * 0.22) * sweep);
+    // Damped lerp so a target swap glides over ~2s instead of cutting.
+    const k = 1 - Math.exp(-dt * 1.6);
+    camera.position.lerp(cineTarget, k);
+    controls.target.lerp(cineLook, k);
+    camera.lookAt(controls.target);
+  }
+
   function updateFollow() {
     if (!follow) return;
     const now = follow.getWorldPosition(followNow);
@@ -290,10 +470,6 @@ export function createSystemView({ renderer, renderPass, galaxyScene, galaxyCame
       controls.target.copy(now);
     }
     followPrev.copy(now);
-  }
-
-  function clearFollow() {
-    follow = null;
   }
 
   function flyTo(pos, target, dur = 1.4) {
@@ -314,11 +490,11 @@ export function createSystemView({ renderer, renderPass, galaxyScene, galaxyCame
     controls.target.lerpVectors(tween.fromTarget, tween.toTarget, e);
     if (u >= 1) {
       tween = null;
-      controls.enabled = true;
+      controls.enabled = mode === 'orbit' || mode === 'follow';
     }
   }
 
-  /* ---- picking --------------------------------------------------- */
+  /* ---- picking + targets ------------------------------------------ */
 
   const raycaster = new THREE.Raycaster();
   const pointer = new THREE.Vector2();
@@ -340,28 +516,33 @@ export function createSystemView({ renderer, renderPass, galaxyScene, galaxyCame
     onPick?.(null, null);
   }
 
-  function focusPlanet(name) {
-    const node = planetNodes.find(p => p.userData.pick.planetName === name);
+  function allTargets() {
+    return [...starNodes, ...planetNodes, ...moonNodes];
+  }
+
+  function nodeForTarget(id) {
+    return allTargets().find(n => n.userData.targetId === id) || null;
+  }
+
+  function focusNode(node) {
     if (!node) return false;
-    const radius = node.geometry.parameters.radius;
-    // Offset scales with the planet so a dwarf and a gas giant frame alike.
-    followOffset.set(radius * 4, radius * 2.6, radius * 5.5);
+    beginFollow(node);
     const target = node.getWorldPosition(new THREE.Vector3());
-    follow = node;
-    followPrev.copy(target);
     flyTo(target.clone().add(followOffset), target, 1.1);
     return true;
   }
 
+  function focusPlanet(name) {
+    return focusNode(planetNodes.find(p => p.userData.pick.planetName === name));
+  }
+
   function frameSystem(dur = 1.4) {
-    clearFollow();
+    follow = null;
     const d = layout ? layout.framing : 60;
     flyTo(new THREE.Vector3(d * 0.35, d * 0.42, d * 0.85), new THREE.Vector3(), dur);
   }
 
-  /* ---- public surface -------------------------------------------- */
-
-  let active = false;
+  /* ---- public surface ---------------------------------------------- */
 
   return {
     get active() { return active; },
@@ -369,10 +550,13 @@ export function createSystemView({ renderer, renderPass, galaxyScene, galaxyCame
     get camera() { return camera; },
     get system() { return system; },
     get layout() { return layout; },
+    get cameraMode() { return mode; },
+    get view() { return { ...view }; },
 
     enter(target) {
       build(target);
       active = true;
+      mode = 'orbit';
       galaxyControls.enabled = false;
       renderPass.scene = scene;
       renderPass.camera = camera;
@@ -380,6 +564,7 @@ export function createSystemView({ renderer, renderPass, galaxyScene, galaxyCame
       // galaxy view visually continues through the fade.
       const d = layout.framing;
       camera.position.set(d * 0.8, d * 1.0, d * 2.0);
+      camera.quaternion.identity();
       controls.target.set(0, 0, 0);
       controls.update();
       frameSystem(1.6);
@@ -388,6 +573,9 @@ export function createSystemView({ renderer, renderPass, galaxyScene, galaxyCame
     exit() {
       active = false;
       tween = null;
+      follow = null;
+      mode = 'orbit';
+      keys.clear();
       controls.enabled = false;
       renderPass.scene = galaxyScene;
       renderPass.camera = galaxyCamera;
@@ -408,10 +596,13 @@ export function createSystemView({ renderer, renderPass, galaxyScene, galaxyCame
 
     update(dt) {
       if (!active) return;
-      layoutOrbits(dt);      // move the worlds first, then chase them
-      updateFollow();
+      elapsed += dt;
+      layoutOrbits(dt);          // move the worlds first, then chase them
+      if (mode === 'free') updateFree(dt);
+      else if (mode === 'cinematic') updateCinematic(dt);
+      else updateFollow();
       updateTween(dt);
-      controls.update();
+      if (mode !== 'free' && mode !== 'cinematic') controls.update();
     },
 
     resize() {
@@ -419,9 +610,42 @@ export function createSystemView({ renderer, renderPass, galaxyScene, galaxyCame
       camera.updateProjectionMatrix();
     },
 
+    setCameraMode,
     pick,
     focusPlanet,
+    focusTarget(id) { return focusNode(nodeForTarget(id)); },
     frameSystem,
+
+    /* Bodies / View tab plumbing */
+    listTargets() {
+      return allTargets().map(n => ({
+        id: n.userData.targetId,
+        name: n.userData.pick.moonName || n.userData.pick.planetName || system?.name || 'Star',
+        kind: n.userData.targetId.split(':')[0],
+        visible: n.visible,
+      }));
+    },
+    setBodyVisible(id, visible) {
+      const node = nodeForTarget(id);
+      if (node) node.visible = visible;
+    },
+    setLabelsVisible(visible) {
+      view.labels = visible;
+      scene.traverse(node => { if (node.isCSS2DObject) node.visible = visible; });
+    },
+    setTrailsVisible(visible) {
+      view.trails = visible;
+      for (const trail of trailNodes) trail.visible = visible;
+    },
+    setPlanetScale(k) {
+      view.planetScale = k;
+      for (const node of planetNodes) node.scale.setScalar(k);
+    },
+    setOrbitScale(k) {
+      view.orbitScale = k;
+      applyOrbitScale();
+      layoutOrbits(0);
+    },
 
     destroy() {
       clearGroup();
@@ -440,10 +664,6 @@ export function createSystemView({ renderer, renderPass, galaxyScene, galaxyCame
    HELPERS
    ================================================================ */
 
-function clamp255(v) {
-  return v < 0 ? 0 : v > 255 ? 255 : v;
-}
-
 function hashSeed(key) {
   let h = 2166136261;
   for (let i = 0; i < key.length; i++) {
@@ -455,11 +675,13 @@ function hashSeed(key) {
 
 function disposeTree(root) {
   root.traverse(node => {
+    // CSS2D labels are DOM; leaving them behind strands divs on screen.
+    if (node.isCSS2DObject) node.element?.remove();
     if (node.geometry) node.geometry.dispose();
     const materials = Array.isArray(node.material) ? node.material : [node.material];
     for (const material of materials) {
       if (!material) continue;
-      // Planet surfaces live in the shared cache and are disposed with it.
+      // Surfaces live in the shared cache and are disposed with it.
       if (material.map && !material.userData?.shared) material.map.dispose?.();
       material.dispose();
     }
