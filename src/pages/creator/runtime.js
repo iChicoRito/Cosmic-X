@@ -18,6 +18,7 @@ import {
   atmosphereComposition, ATMOSPHERE_COLORS, habitabilityScore, systemViewLayout,
 } from './systems.js';
 import { CAMERA_MODES, createSystemView } from './system-view.js';
+import { createLensFlareShader } from './system-fx.js';
 import { createStore, sanitizeState, serializeState, deserializeState } from './persistence.js';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
@@ -63,6 +64,18 @@ const state = {
 const store = createStore(window.localStorage);
 const evolveRng = mulberry32((Math.random() * 0x7fffffff) | 0);
 
+// God-mode tool settings that live inside a stellar system (Spawn / Impact /
+// Laser). Held at factory scope so the main loop can read gravity/collisions.
+const sysSim = {
+  gravity: 1, collisions: true,
+  impactSpeed: 1, impactMass: 1.4, impactSize: 0.5,
+  laserWidth: 0.4, laserPower: 1, laserDuration: 1.1,
+};
+// The transport's speed pips mean galaxy-years in the galaxy; inside a system
+// they scale system-days instead, so re-map the same six tiers to gentle rates
+// that keep impacts reliable rather than teleporting bodies through planets.
+const SYSTEM_SPEEDS = [1, 2, 4, 8, 16, 40];
+
 /* ================================================================
    SCENE & POST-PROCESSING
    ================================================================ */
@@ -99,6 +112,11 @@ composer.addPass(clampPass);
 const bloomPass = new UnrealBloomPass(
   new THREE.Vector2(window.innerWidth, window.innerHeight), 0.62, 0.5, 0.55);
 composer.addPass(bloomPass);
+// Screen-space lens flare for the entered-system star. Off in the galaxy view
+// and at the Low quality tier; the system view drives its uniforms.
+const flarePass = new ShaderPass(createLensFlareShader(THREE));
+flarePass.enabled = false;
+composer.addPass(flarePass);
 const lensingPass = new ShaderPass(LensingShader);
 lensingPass.enabled = false;
 composer.addPass(lensingPass);
@@ -122,9 +140,11 @@ function makeLabel(text, offsetY = 0) {
 }
 
 const systemView = createSystemView({
-  renderer, renderPass, scope, makeLabel,
+  renderer, renderPass, flarePass, scope, makeLabel,
   galaxyScene: scene, galaxyCamera: camera, galaxyControls: controls,
   onToast: toast,
+  // Spawning/impacting/destroying a body reshapes every target list at once.
+  onBodiesChanged: () => { refreshBodyList(); refreshCamTargets(); refreshTargetSelects(); },
   onPick: (pick) => {
     if (pick) {
       selectPick(pick);
@@ -398,6 +418,14 @@ function applyFx() {
   // Inside a system the subject is a lit planet, not a star field — pull bloom
   // back further so surface detail survives.
   if (state.view === 'system') bloomPass.strength *= 0.7;
+  // System-scene environment: quality tier scales particle density, the
+  // nebula/twinkle toggles carry over, and Low drops the flare pass whole.
+  systemView.setFx({
+    density: fx.quality >= 2 ? 1 : fx.quality >= 1.5 ? 0.75 : 0.45,
+    nebulae: fx.showNebulae,
+    twinkle: fx.twinkle,
+  });
+  flarePass.enabled = state.view === 'system' && fx.quality > 1;
   if (galaxy) {
     const u = galaxy.points.material.uniforms;
     u.uOpacity.value = fx.starBrightness;
@@ -740,6 +768,20 @@ function setLabelsVisible(visible) {
   systemView.setLabelsVisible(visible);
 }
 
+// Galaxy nameplates and system nameplates share the one #crLabels layer. While
+// inside a system only the system scene is rendered, so the galaxy CSS2DObjects
+// would hang frozen at their last screen position — hide their DOM on entry and
+// restore it on exit. (When labels are globally off the whole layer is already
+// display:none, so this is a no-op in that case.)
+function setGalaxyLabelsHidden(hidden) {
+  scene.traverse(node => {
+    if (node.isCSS2DObject) {
+      node.visible = !hidden;
+      node.element.style.display = hidden ? 'none' : '';
+    }
+  });
+}
+
 function removeObjectVisual(id) {
   const vis = objectVisuals.get(id);
   if (!vis) return;
@@ -1075,6 +1117,8 @@ function enterSystem(systemId) {
       state.view = 'system';
       camTween = null;
       systemView.enter(system);
+      setGalaxyLabelsHidden(true);        // galaxy plates would freeze over the system
+      lensingPass.enabled = false;        // sim-only; leaving it on strands a stale warp
       applyFx();                          // system view runs a gentler bloom
       syncSystemChrome();
       selectPick({ type: 'system', id: system.id });
@@ -1088,6 +1132,7 @@ function exitSystem() {
   clearTimeout(transitionTimer);
   fadeDip(() => {
     systemView.exit();
+    setGalaxyLabelsHidden(false);       // hand the galaxy its nameplates back
     state.view = 'sim';
     state.focusSystemId = null;
     applyFx();
@@ -1116,8 +1161,9 @@ function syncSystemChrome() {
   if (!panelInContext(activePanel, context)) {
     if (inSystem) {
       galaxyPanelMemory = activePanel;
-      openPanel('bodies');
+      openPanel(panelInContext(systemPanelMemory, 'system') ? systemPanelMemory : 'bodies');
     } else {
+      systemPanelMemory = activePanel;
       openPanel(panelInContext(galaxyPanelMemory, 'galaxy') ? galaxyPanelMemory : 'stats');
     }
   } else {
@@ -1128,8 +1174,9 @@ function syncSystemChrome() {
   // happens to be open — the Cam select must be populated before it is shown.
   refreshBodyList();
   refreshCamTargets();
+  refreshTargetSelects();
   syncTransport();
-  hint(inSystem ? 'Click a body to inspect it — Esc returns to the galaxy' : '');
+  hint(inSystem ? 'Click a body to inspect it · F fires the laser · Esc exits' : '');
 }
 
 /* ================================================================
@@ -1145,6 +1192,9 @@ const PANELS = {
   bodies: { el: 'crBodiesPanel', title: 'Bodies', where: 'system' },
   view: { el: 'crViewPanel', title: 'View', where: 'system' },
   cam: { el: 'crCamPanel', title: 'Camera', where: 'system' },
+  spawn: { el: 'crSpawnPanel', title: 'Spawn', where: 'system' },
+  impact: { el: 'crImpactPanel', title: 'Impact', where: 'system' },
+  laser: { el: 'crLaserPanel', title: 'Laser', where: 'system' },
   stats: { el: 'crStatsPanel', title: 'Galaxy Statistics', where: 'both' },
   encyclopedia: { el: 'crEncPanel', title: 'Cosmic Codex', where: 'both' },
   save: { el: 'crSavePanel', title: 'Save & Share', where: 'both' },
@@ -1152,6 +1202,7 @@ const PANELS = {
 };
 let activePanel = 'stats';
 let galaxyPanelMemory = 'stats';    // tab to restore when leaving a system
+let systemPanelMemory = 'bodies';   // tab to restore when re-entering a system
 
 function panelInContext(name, context) {
   const where = PANELS[name]?.where;
@@ -1237,6 +1288,25 @@ function refreshCamTargets() {
   }
   if (targets.some(t => t.id === previous)) select.value = previous;
   syncCamButtons();
+}
+
+// Impact and Laser aim at a star or planet (moons are too small to lock), so
+// their target selects are refilled whenever the roster of bodies changes.
+function refreshTargetSelects() {
+  const targets = (systemView.active ? systemView.listTargets() : []).filter(t => t.kind !== 'moon');
+  for (const id of ['crImpactTarget', 'crLaserTarget']) {
+    const sel = $(id);
+    if (!sel) continue;
+    const previous = sel.value;
+    sel.replaceChildren();
+    for (const body of targets) {
+      const option = document.createElement('option');
+      option.value = body.id;
+      option.textContent = `${body.name} · ${body.kind}`;
+      sel.append(option);
+    }
+    if (targets.some(t => t.id === previous)) sel.value = previous;
+  }
 }
 
 // Whatever moved the camera — a click in the scene, a Bodies row, a moon row —
@@ -1460,6 +1530,55 @@ function buildPanels() {
   $('crCamTarget').addEventListener('change', event => {
     systemView.focusTarget(event.target.value);
   });
+
+  // Spawn panel — populate the system, warp its gravity
+  $('crSpawnAsteroid').addEventListener('click', () => systemView.spawnAsteroid(true));
+  $('crSpawnComet').addEventListener('click', () => systemView.spawnComet());
+  $('crSpawnBH').addEventListener('click', () => systemView.spawnBlackHole());
+  $('crClearSpawned').addEventListener('click', () => systemView.clearSpawned());
+  $('crSpawnSliders').append(sliderRow('gravity',
+    { label: 'Gravity', min: 0, max: 3, step: 0.1, unit: '×' }, sysSim.gravity, v => { sysSim.gravity = v; }));
+  const collideToggle = $('crSysCollide');
+  collideToggle.checked = sysSim.collisions;
+  collideToggle.addEventListener('change', () => { sysSim.collisions = collideToggle.checked; });
+
+  // Impact panel — hurl a body at a target
+  const impactSliders = $('crImpactSliders');
+  const impactDefs = {
+    impactSpeed: { label: 'Speed', min: 0.3, max: 3, step: 0.1, unit: '×' },
+    impactMass: { label: 'Mass', min: 0.2, max: 8, step: 0.1, unit: '' },
+    impactSize: { label: 'Size', min: 0.2, max: 2, step: 0.1, unit: '' },
+  };
+  for (const [key, def] of Object.entries(impactDefs)) {
+    impactSliders.append(sliderRow(key, def, sysSim[key], v => { sysSim[key] = v; }));
+  }
+  $('crLaunchBtn').addEventListener('click', () => {
+    systemView.launchImpactor($('crImpactTarget').value, {
+      speed: sysSim.impactSpeed, mass: sysSim.impactMass, size: sysSim.impactSize,
+      homing: $('crImpactHoming').checked,
+    });
+  });
+
+  // Laser panel — hit-scan beam on the locked target
+  const laserSliders = $('crLaserSliders');
+  const laserDefs = {
+    laserWidth: { label: 'Beam width', min: 0.1, max: 1.5, step: 0.05, unit: '' },
+    laserPower: { label: 'Power', min: 0.2, max: 4, step: 0.1, unit: '' },
+    laserDuration: { label: 'Duration', min: 0.4, max: 3, step: 0.1, unit: ' s' },
+  };
+  for (const [key, def] of Object.entries(laserDefs)) {
+    laserSliders.append(sliderRow(key, def, sysSim[key], v => { sysSim[key] = v; }));
+  }
+  $('crFireLaser').addEventListener('click', fireLaserFromUI);
+}
+
+// Reads the Laser panel and fires; shared by the button and the F key.
+function fireLaserFromUI() {
+  systemView.fireLaser($('crLaserTarget')?.value, {
+    width: sysSim.laserWidth, power: sysSim.laserPower, duration: sysSim.laserDuration,
+    color: new THREE.Color($('crLaserColor').value).getHex(),
+    destructive: $('crLaserDestructive').checked,
+  });
 }
 
 function rebuildSystemDetail(system) {
@@ -1611,6 +1730,7 @@ function applyState(data) {
     state.view = 'sim';
     galaxyReturnPose = null;
     syncSystemChrome();
+    applyFx();                      // re-arm galaxy bloom, drop the flare pass
   }
   clearWorld();
   state.params = clean.params;
@@ -1945,17 +2065,21 @@ function buildPlanetExtras(planet, system) {
     frag.append(section(`Moons — ${moons.length}`));
     const list = document.createElement('div');
     list.className = 'cr-moons';
+    // Fly-to only means something once you are standing in the scene. From the
+    // galaxy dossier the rows are static readouts, not dead-looking buttons.
+    const flyable = systemView.active;
     for (const moon of moons) {
-      const row = document.createElement('button');
-      row.type = 'button';
-      row.className = 'cr-moon-row';
+      const row = document.createElement(flyable ? 'button' : 'div');
+      if (flyable) row.type = 'button';
+      row.className = `cr-moon-row${flyable ? '' : ' static'}`;
       row.innerHTML = `${moon.name}<br><small>${moon.distance.toFixed(1)} planet radii · ${moon.periodDays.toFixed(1)} d</small>`;
-      row.addEventListener('click', () => {
-        if (!systemView.active) return;
-        systemView.focusTarget(`moon:${moon.name}`);
-        syncCamTargetTo(`moon:${moon.name}`);
-        selectPick({ type: 'moon', systemId: system.id, planetName: planet.name, moonName: moon.name });
-      });
+      if (flyable) {
+        row.addEventListener('click', () => {
+          systemView.focusTarget(`moon:${moon.name}`);
+          syncCamTargetTo(`moon:${moon.name}`);
+          selectPick({ type: 'moon', systemId: system.id, planetName: planet.name, moonName: moon.name });
+        });
+      }
       list.append(row);
     }
     frag.append(list);
@@ -2346,6 +2470,8 @@ function setupUI() {
     } else if (event.key === 'h' || event.key === 'H') {
       state.uiHidden = !state.uiHidden;
       document.body.classList.toggle('cr-ui-hidden', state.uiHidden);
+    } else if ((event.key === 'f' || event.key === 'F') && systemView.active) {
+      fireLaserFromUI();                 // F fires the laser, As the Gods Will style
     } else if (event.key === 'Escape') {
       if (state.placing) {
         setPlacing(null);
@@ -2394,7 +2520,8 @@ function update(dt) {
   if (state.view === 'system') {
     // The galaxy scene is not on screen; its LOD, lensing and sprite work would
     // all be wasted, so only the clock and the system scene tick.
-    systemView.update(dt);
+    const simScale = state.sim.playing ? SYSTEM_SPEEDS[state.sim.speedIdx] : 0;
+    systemView.update(dt, { simScale, gravityMult: sysSim.gravity, collisions: sysSim.collisions });
     if (state.stats) advanceSimClock(dt);
     updateEffects(dt);
     return;
@@ -2515,6 +2642,12 @@ window.creator = {
   enterSystem,                               // fly into a stellar system by id
   exitSystem,
   focusCodex: focusCodexEntry,
+  // Gameplay probes for headless verification of the in-system god-tools.
+  spawnAsteroid: (fromCam = false) => systemView.spawnAsteroid(fromCam),
+  spawnComet: () => systemView.spawnComet(),
+  spawnBlackHole: m => systemView.spawnBlackHole(m),
+  launchImpactor: (id, o) => systemView.launchImpactor(id, o),
+  fireLaser: (id, o) => systemView.fireLaser(id, o),
   get systemView() { return systemView; },
   setSpeed(idx) {
     state.sim.speedIdx = Math.min(Math.max(idx, 0), SPEEDS.length - 1);
@@ -2528,6 +2661,7 @@ window.creator = {
   get discoveries() { return [...state.discoveries]; },
   get bloomPass() { return bloomPass; },
   get lensingPass() { return lensingPass; },
+  get flarePass() { return flarePass; },
   // Programmatic placement is one-shot; only the palette arms the sticky tool.
   placeSystemAt: local => {
     state.placing = { mode: 'system', config: { type: 'G', count: 1, ageYr: 4.6e9, tempK: 5700, luminosity: 1 } };

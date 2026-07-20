@@ -225,6 +225,46 @@ test('glow is dialled back so planetary detail survives the bloom pass', () => {
   assert.match(runtime, /glow\.scale\.setScalar\(size \* 3\)/);
 });
 
+test('the entered system gets a layered environment, flare pass and tails', () => {
+  const fx = read('../src/pages/creator/system-fx.js');
+  const view = read('../src/pages/creator/system-view.js');
+  for (const fn of ['createSystemSky', 'createDustFields', 'createStarAura',
+    'createCometTail', 'createWakeMaterial', 'createLensFlareShader',
+    'createShockwave', 'disposeFxTextures']) {
+    assert.match(fx, new RegExp(`export function ${fn}\\(`), `fx export ${fn}`);
+  }
+  // layers animate via GPU uniforms, not per-particle CPU writes
+  assert.match(fx, /uTime/);
+  assert.match(fx, /gl_PointSize/);
+  // the star aura stays rim-only so a transiting planet is never washed out
+  assert.match(fx, /side: THREE\.BackSide/);
+  // the view builds env per system and drops the old flat backdrop
+  assert.match(view, /buildEnv\(target\)/);
+  assert.match(view, /createDustFields\(\{ edge: layout\.edge/);
+  assert.doesNotMatch(view, /function buildBackdrop\(/);
+  // comet tails aim anti-starward every frame, spawned comets included
+  assert.match(view, /createCometTail\(/);
+  assert.match(view, /tail\.aim\(/);
+  assert.match(view, /body\.tail/);
+  // orbit lanes carry the wake shader with a per-frame head angle
+  assert.match(view, /createWakeMaterial\(\)/);
+  assert.match(view, /uniforms\.uHead\.value/);
+  // flare: occlusion raycast + edge fade drive the composer pass uniforms
+  assert.match(view, /function updateFlare\(/);
+  assert.match(view, /raycaster\.intersectObjects\(planetNodes, false\)/);
+  assert.match(view, /flarePass\.uniforms\.uStrength\.value/);
+  // runtime inserts the pass before lensing and gates it on view + quality
+  assert.match(runtime, /createLensFlareShader/);
+  assert.match(runtime, /flarePass\.enabled = state\.view === 'system' && fx\.quality > 1/);
+  assert.match(runtime, /systemView\.setFx\(\{/);
+  // moons trade flat grey for cached cratered surfaces
+  assert.match(view, /createPlanetSurface\('dwarf'/);
+  // impacts ride an expanding shockwave ring
+  assert.match(view, /createShockwave\(at, size \* 2\.2, dynGroup\)/);
+  // destroy() clears the module-level fx texture singletons
+  assert.match(view, /disposeFxTextures\(\)/);
+});
+
 test('destroy disposes Three.js resources and the resource scope', () => {
   assert.match(runtime, /function destroy\(\)/);
   assert.match(runtime, /scope\.destroy\(\)/);
@@ -246,4 +286,47 @@ test('page injects a route-scoped stylesheet and delegates to the runtime', () =
   assert.match(page, /data-route-style="creator"/);
   assert.match(page, /createCreatorRuntime/);
   assert.match(page, /runtime\.destroy\(\)/);
+});
+
+test('the god-mode tools show up as system-only Spawn / Impact / Laser panels', () => {
+  for (const id of ['crSpawnPanel', 'crImpactPanel', 'crLaserPanel',
+    'crSpawnAsteroid', 'crSpawnComet', 'crSpawnBH', 'crClearSpawned',
+    'crImpactTarget', 'crLaunchBtn', 'crLaserTarget', 'crFireLaser']) {
+    startTagById(template, id);
+  }
+  for (const panel of ['spawn', 'impact', 'laser']) {
+    assert.match(template, new RegExp(`data-panel="${panel}"`), `${panel} tab`);
+    assert.match(runtime, new RegExp(`${panel}: \\{ el: 'cr${panel[0].toUpperCase()}${panel.slice(1)}Panel', title: '[^']+', where: 'system' \\}`), `${panel} PANELS entry`);
+  }
+  // the transport's speed pips are re-mapped to gentle in-system rates
+  assert.match(runtime, /const SYSTEM_SPEEDS = \[/);
+  assert.match(runtime, /systemView\.update\(dt, \{ simScale/);
+  // F fires the laser, and the button shares one code path with the key
+  assert.match(runtime, /function fireLaserFromUI\(/);
+  assert.match(runtime, /event\.key === 'f' \|\| event\.key === 'F'\) && systemView\.active/);
+});
+
+test('the system scene carries a full gravity + spawn + impact + laser substrate', () => {
+  const view = read('../src/pages/creator/system-view.js');
+  for (const fn of ['gravityAt', 'integrate', 'collide', 'impactPlanet', 'destroyPlanetNode',
+    'spawnAsteroid', 'spawnComet', 'spawnBlackHole', 'launchImpactor', 'fireLaser', 'makeDynamic', 'clearSpawned']) {
+    assert.match(view, new RegExp(`function ${fn}\\(`), `substrate fn ${fn}`);
+  }
+  // spawned bodies live outside `group` so a system rebuild never wipes the shared rock assets
+  assert.match(view, /const dynGroup = new THREE\.Group\(\)/);
+  assert.match(view, /rockGeo\.dispose\(\);/);
+  assert.match(view, /rockMat\.dispose\(\);/);
+  // gravity owns a converted planet; rails skip it
+  assert.match(view, /if \(node\.userData\.dyn\) continue;/);
+  // the update signature takes sim context (pause/speed/gravity/collisions)
+  assert.match(view, /update\(dt, opts = \{\}\)/);
+});
+
+test('galaxy nameplates are hidden on entry and the system tab is remembered', () => {
+  assert.match(runtime, /function setGalaxyLabelsHidden\(/);
+  assert.match(runtime, /setGalaxyLabelsHidden\(true\)/);
+  assert.match(runtime, /setGalaxyLabelsHidden\(false\)/);
+  assert.match(runtime, /systemPanelMemory/);
+  // lensing is a galaxy-only warp; it must not leak into the system view
+  assert.match(runtime, /lensingPass\.enabled = false;\s*\/\/ sim-only/);
 });

@@ -63,6 +63,9 @@ export function creatorTemplate() {
       <button class="cr-tab" type="button" data-panel="bodies">Bodies</button>
       <button class="cr-tab" type="button" data-panel="view">View</button>
       <button class="cr-tab" type="button" data-panel="cam">Cam</button>
+      <button class="cr-tab" type="button" data-panel="spawn">Spawn</button>
+      <button class="cr-tab" type="button" data-panel="impact">Impact</button>
+      <button class="cr-tab" type="button" data-panel="laser">Laser</button>
       <button class="cr-tab" type="button" data-panel="stats">Stats</button>
       <button class="cr-tab" type="button" data-panel="encyclopedia">Codex</button>
       <button class="cr-tab" type="button" data-panel="save">Save</button>
@@ -111,6 +114,33 @@ export function creatorTemplate() {
       <div id="crCamGrid" class="cr-cam-grid"></div>
       <div class="cr-field"><label for="crCamTarget">Target</label><select id="crCamTarget"></select></div>
       <p id="crCamHint" class="cr-note"></p>
+    </div>
+
+    <div class="cr-panel-body" id="crSpawnPanel" hidden>
+      <p class="cr-dim">Populate the system — then bend its physics.</p>
+      <div class="cr-spawn-grid">
+        <button id="crSpawnAsteroid" class="cr-btn" type="button">Asteroid</button>
+        <button id="crSpawnComet" class="cr-btn" type="button">Comet</button>
+        <button id="crSpawnBH" class="cr-btn" type="button">Black Hole</button>
+        <button id="crClearSpawned" class="cr-btn danger" type="button">Clear</button>
+      </div>
+      <div id="crSpawnSliders" class="cr-sliders"></div>
+      <div class="cr-field cr-check"><label for="crSysCollide">Collisions</label><input type="checkbox" id="crSysCollide" checked></div>
+    </div>
+
+    <div class="cr-panel-body" id="crImpactPanel" hidden>
+      <div class="cr-field"><label for="crImpactTarget">Target</label><select id="crImpactTarget"></select></div>
+      <div id="crImpactSliders" class="cr-sliders"></div>
+      <div class="cr-field cr-check"><label for="crImpactHoming">Homing</label><input type="checkbox" id="crImpactHoming" checked></div>
+      <button id="crLaunchBtn" class="cr-btn primary wide" type="button">Launch Impactor</button>
+    </div>
+
+    <div class="cr-panel-body" id="crLaserPanel" hidden>
+      <div class="cr-field"><label for="crLaserTarget">Target</label><select id="crLaserTarget"></select></div>
+      <div id="crLaserSliders" class="cr-sliders"></div>
+      <div class="cr-field"><label for="crLaserColor">Beam colour</label><input type="color" id="crLaserColor" value="#ff4d6d"></div>
+      <div class="cr-field cr-check"><label for="crLaserDestructive">Destructive</label><input type="checkbox" id="crLaserDestructive" checked></div>
+      <button id="crFireLaser" class="cr-btn primary wide" type="button">Fire Laser <kbd>F</kbd></button>
     </div>
 
     <div class="cr-panel-body" id="crStatsPanel" hidden>
