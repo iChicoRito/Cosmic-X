@@ -16,9 +16,9 @@ import {
   derivePlanet, generatePlanets, habitableZone, systemLuminosity, OBJECT_KINDS,
   objectKind, ENCYCLOPEDIA, encyclopediaEntry, planetColor,
   atmosphereComposition, ATMOSPHERE_COLORS, habitabilityScore, systemViewLayout,
+  systemSlug, findSystemBySlug,
 } from './systems.js';
 import { CAMERA_MODES, createSystemView } from './system-view.js';
-import { createLensFlareShader } from './system-fx.js';
 import { createStore, sanitizeState, serializeState, deserializeState } from './persistence.js';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
@@ -29,7 +29,7 @@ import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
 import { CSS2DRenderer, CSS2DObject } from 'three/addons/renderers/CSS2DRenderer.js';
 
-export function createCreatorRuntime({ root, navigate }) {
+export function createCreatorRuntime({ root, route, navigate, replaceRoute = () => {} }) {
 const scope = createResourceScope(window);
 const requestAnimationFrame = scope.requestAnimationFrame;
 const cancelAnimationFrame = scope.cancelAnimationFrame;
@@ -50,7 +50,7 @@ const state = {
   wizardStep: 0,
   params: null,               // sanitized galaxy params once wizard opens
   stats: null,
-  sim: { years: 0, speedIdx: 0, playing: true },
+  sim: { years: 0, speedIdx: 1, playing: true, dps: 10 },   // dps = sim days/second inside a system
   systems: [],                // created stellar systems (data)
   objects: [],                // placed celestial objects (data)
   discoveries: new Set(),
@@ -64,17 +64,13 @@ const state = {
 const store = createStore(window.localStorage);
 const evolveRng = mulberry32((Math.random() * 0x7fffffff) | 0);
 
-// God-mode tool settings that live inside a stellar system (Spawn / Impact /
-// Laser). Held at factory scope so the main loop can read gravity/collisions.
-const sysSim = {
-  gravity: 1, collisions: true,
-  impactSpeed: 1, impactMass: 1.4, impactSize: 0.5,
-  laserWidth: 0.4, laserPower: 1, laserDuration: 1.1,
-};
 // The transport's speed pips mean galaxy-years in the galaxy; inside a system
-// they scale system-days instead, so re-map the same six tiers to gentle rates
-// that keep impacts reliable rather than teleporting bodies through planets.
-const SYSTEM_SPEEDS = [1, 2, 4, 8, 16, 40];
+// each pip is a simulated-days-per-second preset (capped at the Speed slider's
+// 200 d/s max, so the pip highlight and the slider thumb always agree).
+const SYSTEM_SPEEDS = [1, 10, 50, 100, 150, 200];
+// Sim-tab god-free simulation settings, read by the system update loop.
+let simGravity = 1;
+let simCollisions = false;
 
 /* ================================================================
    SCENE & POST-PROCESSING
@@ -112,11 +108,6 @@ composer.addPass(clampPass);
 const bloomPass = new UnrealBloomPass(
   new THREE.Vector2(window.innerWidth, window.innerHeight), 0.62, 0.5, 0.55);
 composer.addPass(bloomPass);
-// Screen-space lens flare for the entered-system star. Off in the galaxy view
-// and at the Low quality tier; the system view drives its uniforms.
-const flarePass = new ShaderPass(createLensFlareShader(THREE));
-flarePass.enabled = false;
-composer.addPass(flarePass);
 const lensingPass = new ShaderPass(LensingShader);
 lensingPass.enabled = false;
 composer.addPass(lensingPass);
@@ -140,11 +131,11 @@ function makeLabel(text, offsetY = 0) {
 }
 
 const systemView = createSystemView({
-  renderer, renderPass, flarePass, scope, makeLabel,
+  renderer, renderPass, scope, makeLabel,
   galaxyScene: scene, galaxyCamera: camera, galaxyControls: controls,
   onToast: toast,
-  // Spawning/impacting/destroying a body reshapes every target list at once.
-  onBodiesChanged: () => { refreshBodyList(); refreshCamTargets(); refreshTargetSelects(); },
+  // Hiding a body reshapes the Bodies list and the camera target list at once.
+  onBodiesChanged: () => { refreshBodyList(); refreshCamTargets(); },
   onPick: (pick) => {
     if (pick) {
       selectPick(pick);
@@ -415,17 +406,23 @@ function applyFx() {
   renderer.setSize(window.innerWidth, window.innerHeight);
   composer.setSize(window.innerWidth, window.innerHeight);
   bloomPass.strength = fx.bloom;
-  // Inside a system the subject is a lit planet, not a star field — pull bloom
-  // back further so surface detail survives.
-  if (state.view === 'system') bloomPass.strength *= 0.7;
-  // System-scene environment: quality tier scales particle density, the
-  // nebula/twinkle toggles carry over, and Low drops the flare pass whole.
+  // Inside a system the star should glow like the As the Gods Will sun: run a
+  // solar-grade bloom and lift the highlight clamp so the corona and lens flare
+  // survive to bloom. The galaxy view keeps the tighter budget that stops fat
+  // marker halos from burying everything.
+  if (state.view === 'system') {
+    bloomPass.strength = Math.max(fx.bloom * 1.8, 1.1);
+    clampPass.uniforms.uCap.value = 3.2;
+  } else {
+    clampPass.uniforms.uCap.value = 1.6;
+  }
+  // System-scene environment: quality tier scales particle density, and the
+  // nebula/twinkle toggles carry over.
   systemView.setFx({
     density: fx.quality >= 2 ? 1 : fx.quality >= 1.5 ? 0.75 : 0.45,
     nebulae: fx.showNebulae,
     twinkle: fx.twinkle,
   });
-  flarePass.enabled = state.view === 'system' && fx.quality > 1;
   if (galaxy) {
     const u = galaxy.points.material.uniforms;
     u.uOpacity.value = fx.starBrightness;
@@ -1010,6 +1007,7 @@ function buildTransport() {
     btn.addEventListener('click', () => {
       state.sim.speedIdx = idx;
       state.sim.playing = true;
+      if (systemView.active) state.sim.dps = SYSTEM_SPEEDS[idx];   // pip picks a d/s preset
       syncTransport();
     });
     host.append(btn);
@@ -1031,19 +1029,121 @@ function syncTransport() {
     ? systemView.system.name
     : (state.params ? state.params.name : '');
   syncGlance();
+  syncSimPanel();
 }
 
+// Reflect transport-driven speed/playing back into the Sim tab controls.
+// Repaint directly — dispatching 'input' would re-fire setSystemDps and loop.
+function syncSimPanel() {
+  const playing = document.getElementById('crSimPlaying');
+  if (playing) playing.checked = state.sim.playing;
+  const speed = document.getElementById('cr-param-speed');
+  if (speed && Number(speed.value) !== state.sim.dps) {
+    speed.value = state.sim.dps;
+    const out = speed.previousElementSibling?.querySelector('output');
+    if (out) out.textContent = `${state.sim.dps} d/s`;
+    paintRangeFill(speed);
+  }
+}
+
+// Sim tab — status, controls, display and automatic/manual events for the
+// entered system. Mirrors the As the Gods Will Sim page; toggles reuse the
+// creator's cr-check style (kept consistent with the other creator tabs).
+function buildSimPanel() {
+  const playing = $('crSimPlaying');
+  playing.checked = state.sim.playing;
+  playing.addEventListener('change', () => { state.sim.playing = playing.checked; syncTransport(); });
+
+  const sliders = $('crSimSliders');
+  sliders.append(sliderRow('speed',
+    { label: 'Speed', min: 1, max: 200, step: 1, unit: ' d/s' }, state.sim.dps, setSystemDps));
+  sliders.append(sliderRow('gravity',
+    { label: 'Gravity', min: 0, max: 5, step: 0.1, unit: '×' }, simGravity,
+    v => { simGravity = v; systemView.setGravity(v); }));
+  sliders.append(sliderRow('planetScale',
+    { label: 'Planet size', min: 0.5, max: 4, step: 0.05, unit: '×' }, 1, v => systemView.setPlanetScale(v)));
+  sliders.append(sliderRow('orbitScale',
+    { label: 'Distances', min: 0.6, max: 2, step: 0.05, unit: '×' }, 1, v => systemView.setOrbitScale(v)));
+
+  const trails = $('crSimTrails');
+  trails.addEventListener('change', () => systemView.setTrailsVisible(trails.checked));
+  const labels = $('crSimLabels');
+  labels.checked = state.fx.showLabels;
+  labels.addEventListener('change', () => setLabelsVisible(labels.checked));
+
+  const collisions = $('crSimCollisions');
+  collisions.addEventListener('change', () => { simCollisions = collisions.checked; systemView.setCollisions(collisions.checked); });
+  const eclipses = $('crSimEclipses');
+  eclipses.addEventListener('change', () => systemView.setEclipses(eclipses.checked));
+  const asteroids = $('crSimAsteroids');
+  asteroids.addEventListener('change', () => systemView.setResidentAsteroids(asteroids.checked));
+}
+
+// Speed slider is the source of truth for the in-system day-rate; snap the
+// transport pip highlight to the nearest preset.
+function setSystemDps(v) {
+  state.sim.dps = v;
+  state.sim.playing = true;
+  let best = 0, bd = Infinity;
+  SYSTEM_SPEEDS.forEach((s, i) => { const d = Math.abs(s - v); if (d < bd) { bd = d; best = i; } });
+  state.sim.speedIdx = best;
+  syncTransport();
+}
+
+// Manual events adapt to the entered system: an eclipse button appears only
+// when a moon (lunar) or a planet (transit) can produce one. Rebuilt per system.
+function buildManualEvents() {
+  const host = $('crSimManual');
+  if (!host) return;
+  host.replaceChildren();
+  const kind = systemView.active ? systemView.eclipseSupport() : null;
+  if (!kind) {
+    const note = document.createElement('p');
+    note.className = 'cr-dim';
+    note.textContent = 'No eclipse-capable bodies in this system.';
+    host.append(note);
+    return;
+  }
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'cr-btn wide';
+  btn.textContent = kind === 'lunar' ? 'Trigger lunar eclipse' : 'Trigger transit';
+  btn.addEventListener('click', () => {
+    const res = systemView.triggerEclipse();
+    if (res?.ok) {
+      toast(`Aligned a ${res.label}`);
+      $('crSimEclipses').checked = true;   // triggering forces shadows on
+    }
+  });
+  host.append(btn);
+}
+
+// The three glance slots read galaxy stats out in the galaxy, and the entered
+// system's own census (worlds / moons / comets) once you step inside one.
 function syncGlance() {
-  if (!state.stats) return;
-  $('crGlanceStars').textContent = formatCount(state.stats.totalStars);
-  $('crGlanceGas').textContent = `${Math.round(state.stats.gasSupply * 100)}%`;
-  $('crGlanceSystems').textContent = String(state.systems.length);
+  const sys = systemView.active ? systemView.system : null;
+  let labels, values;
+  if (sys) {
+    const moons = sys.planets.reduce((n, p) => n + (p.moons | 0), 0);
+    labels = ['Worlds', 'Moons', 'Comets'];
+    values = [String(sys.planets.length), String(moons), String(sys.comets)];
+  } else {
+    if (!state.stats) return;
+    labels = ['Stars', 'Gas', 'Systems'];
+    values = [formatCount(state.stats.totalStars), `${Math.round(state.stats.gasSupply * 100)}%`, String(state.systems.length)];
+  }
+  ['crGlanceStars', 'crGlanceGas', 'crGlanceSystems'].forEach((id, i) => {
+    const value = $(id);
+    if (!value) return;
+    value.textContent = values[i];
+    if (value.previousElementSibling) value.previousElementSibling.textContent = labels[i];
+  });
 }
 
 function finalizeGalaxy() {
   state.params = sanitizeParams({ ...state.params, name: $('crNameInput')?.value || state.params.name });
   state.stats = createStats(state.params);
-  state.sim = { years: 0, speedIdx: 0, playing: true };
+  state.sim = { years: 0, speedIdx: 1, playing: true, dps: 10 };
   enterSim(true);
   unlock(`galaxy-${state.params.type}`, true);
   toast(`${state.params.name} ignites. You are its creator.`);
@@ -1097,6 +1197,62 @@ function updateCamTween(dt) {
 
 let galaxyReturnPose = null;
 let transitionTimer = 0;
+// The entered system is a route (/#/creator/{slug}); the URL is the source of
+// truth. `routeSystemSlug` mirrors the slug the router last asked for, and
+// `pendingSystemSlug` queues a switch that has to wait for an exit to finish.
+let routeSystemSlug = route?.view === 'system' ? route.system : null;
+let pendingSystemSlug = null;
+
+// Entry triggers navigate to the slug URL rather than entering directly; the
+// router bounces back through setView, which runs the real choreography.
+function requestEnterSystem(systemId) {
+  const system = state.systems.find(s => s.id === systemId);
+  if (!system) return false;
+  navigate(`/creator/${systemSlug(system.name)}`);
+  return true;
+}
+
+function enterSystemBySlug(slug) {
+  const system = findSystemBySlug(state.systems, slug);
+  return system ? enterSystem(system.id) : false;
+}
+
+// Router hook: the creator page is one mount whose galaxy and system are views.
+function setView(view, routeArg) {
+  const slug = view === 'system' ? (routeArg?.system || null) : null;
+  routeSystemSlug = slug;
+  if (slug) {
+    if (systemView.active) {
+      if (systemView.system && systemSlug(systemView.system.name) === slug) return;
+      pendingSystemSlug = slug;      // switch systems: exit first, tail re-enters
+      exitSystem();
+      return;
+    }
+    if (enterSystemBySlug(slug)) return;
+    if (state.view === 'title') { deepEnter(slug); return; }
+    replaceRoute('/creator');        // galaxy live but has no such system
+    return;
+  }
+  // Any non-system creator URL: cancel a mid-flight entry and leave a system.
+  pendingSystemSlug = null;
+  clearTimeout(transitionTimer);
+  if (systemView.active) exitSystem();
+  else state.focusSystemId = null;
+}
+
+// Cold boot deep link: no galaxy is loaded yet, so find a save that contains
+// the requested system, restore it, then enter. Nothing matches -> title.
+function deepEnter(slug) {
+  for (const info of store.listSlots()) {
+    const data = store.load(info.name);
+    if (data && findSystemBySlug(data.systems, slug)) {
+      applyState(data);
+      enterSystemBySlug(slug);
+      return;
+    }
+  }
+  replaceRoute('/creator');
+}
 
 function enterSystem(systemId) {
   if (systemView.active || state.view !== 'sim') return false;
@@ -1143,6 +1299,11 @@ function exitSystem() {
       controls.update();
       galaxyReturnPose = null;
     }
+    if (pendingSystemSlug) {         // a system-to-system switch waited on this exit
+      const next = pendingSystemSlug;
+      pendingSystemSlug = null;
+      enterSystemBySlug(next);
+    }
   });
   return true;
 }
@@ -1174,9 +1335,17 @@ function syncSystemChrome() {
   // happens to be open — the Cam select must be populated before it is shown.
   refreshBodyList();
   refreshCamTargets();
-  refreshTargetSelects();
+  buildManualEvents();          // the eclipse event adapts to the entered system
   syncTransport();
-  hint(inSystem ? 'Click a body to inspect it · F fires the laser · Esc exits' : '');
+
+  // The back control returns to the galaxy from inside a system, and to the
+  // mode menu from the galaxy itself.
+  const back = $('creatorBackLink');
+  if (back) {
+    back.textContent = inSystem ? '← Back to Galaxy' : '← Back to Modes';
+    back.setAttribute('href', inSystem ? '#/creator' : '#/modes');
+  }
+  hint(inSystem ? 'Click a body to inspect it · Esc returns to the galaxy' : '');
 }
 
 /* ================================================================
@@ -1190,11 +1359,8 @@ const PANELS = {
   place: { el: 'crPlacePanel', title: 'Place Objects', where: 'galaxy' },
   events: { el: 'crEventsPanel', title: 'Cosmic Events', where: 'galaxy' },
   bodies: { el: 'crBodiesPanel', title: 'Bodies', where: 'system' },
-  view: { el: 'crViewPanel', title: 'View', where: 'system' },
+  sim: { el: 'crSimPanel', title: 'Simulation', where: 'system' },
   cam: { el: 'crCamPanel', title: 'Camera', where: 'system' },
-  spawn: { el: 'crSpawnPanel', title: 'Spawn', where: 'system' },
-  impact: { el: 'crImpactPanel', title: 'Impact', where: 'system' },
-  laser: { el: 'crLaserPanel', title: 'Laser', where: 'system' },
   stats: { el: 'crStatsPanel', title: 'Galaxy Statistics', where: 'both' },
   encyclopedia: { el: 'crEncPanel', title: 'Cosmic Codex', where: 'both' },
   save: { el: 'crSavePanel', title: 'Save & Share', where: 'both' },
@@ -1225,6 +1391,7 @@ function openPanel(name) {
   if (name === 'save') refreshSlots();
   if (name === 'bodies') refreshBodyList();
   if (name === 'cam') refreshCamTargets();
+  if (name === 'sim') { buildManualEvents(); syncSimPanel(); }
 }
 
 /* ================================================================
@@ -1292,23 +1459,6 @@ function refreshCamTargets() {
 
 // Impact and Laser aim at a star or planet (moons are too small to lock), so
 // their target selects are refilled whenever the roster of bodies changes.
-function refreshTargetSelects() {
-  const targets = (systemView.active ? systemView.listTargets() : []).filter(t => t.kind !== 'moon');
-  for (const id of ['crImpactTarget', 'crLaserTarget']) {
-    const sel = $(id);
-    if (!sel) continue;
-    const previous = sel.value;
-    sel.replaceChildren();
-    for (const body of targets) {
-      const option = document.createElement('option');
-      option.value = body.id;
-      option.textContent = `${body.name} · ${body.kind}`;
-      sel.append(option);
-    }
-    if (targets.some(t => t.id === previous)) sel.value = previous;
-  }
-}
-
 // Whatever moved the camera — a click in the scene, a Bodies row, a moon row —
 // the Target select has to agree, or it silently lies about where you are.
 function syncCamTargetTo(id) {
@@ -1498,20 +1648,7 @@ function buildPanels() {
   bindFxToggle('crFxClusters', 'showClusters');
   bindFxToggle('crFxTwinkle', 'twinkle');
 
-  // View panel — presentation of the system you are standing in
-  const viewLabels = $('crViewLabels');
-  viewLabels.checked = state.fx.showLabels;
-  viewLabels.addEventListener('change', () => setLabelsVisible(viewLabels.checked));
-  const viewTrails = $('crViewTrails');
-  viewTrails.addEventListener('change', () => systemView.setTrailsVisible(viewTrails.checked));
-  const viewSliders = $('crViewSliders');
-  const viewDefs = {
-    planetScale: { label: 'World size', min: 0.5, max: 4, step: 0.05, unit: '×', apply: v => systemView.setPlanetScale(v) },
-    orbitScale: { label: 'Orbit spacing', min: 0.6, max: 2, step: 0.05, unit: '×', apply: v => systemView.setOrbitScale(v) },
-  };
-  for (const [key, def] of Object.entries(viewDefs)) {
-    viewSliders.append(sliderRow(key, def, 1, def.apply));
-  }
+  buildSimPanel();
 
   // Cam panel — the exploration camera modes
   const camGrid = $('crCamGrid');
@@ -1529,55 +1666,6 @@ function buildPanels() {
   }
   $('crCamTarget').addEventListener('change', event => {
     systemView.focusTarget(event.target.value);
-  });
-
-  // Spawn panel — populate the system, warp its gravity
-  $('crSpawnAsteroid').addEventListener('click', () => systemView.spawnAsteroid(true));
-  $('crSpawnComet').addEventListener('click', () => systemView.spawnComet());
-  $('crSpawnBH').addEventListener('click', () => systemView.spawnBlackHole());
-  $('crClearSpawned').addEventListener('click', () => systemView.clearSpawned());
-  $('crSpawnSliders').append(sliderRow('gravity',
-    { label: 'Gravity', min: 0, max: 3, step: 0.1, unit: '×' }, sysSim.gravity, v => { sysSim.gravity = v; }));
-  const collideToggle = $('crSysCollide');
-  collideToggle.checked = sysSim.collisions;
-  collideToggle.addEventListener('change', () => { sysSim.collisions = collideToggle.checked; });
-
-  // Impact panel — hurl a body at a target
-  const impactSliders = $('crImpactSliders');
-  const impactDefs = {
-    impactSpeed: { label: 'Speed', min: 0.3, max: 3, step: 0.1, unit: '×' },
-    impactMass: { label: 'Mass', min: 0.2, max: 8, step: 0.1, unit: '' },
-    impactSize: { label: 'Size', min: 0.2, max: 2, step: 0.1, unit: '' },
-  };
-  for (const [key, def] of Object.entries(impactDefs)) {
-    impactSliders.append(sliderRow(key, def, sysSim[key], v => { sysSim[key] = v; }));
-  }
-  $('crLaunchBtn').addEventListener('click', () => {
-    systemView.launchImpactor($('crImpactTarget').value, {
-      speed: sysSim.impactSpeed, mass: sysSim.impactMass, size: sysSim.impactSize,
-      homing: $('crImpactHoming').checked,
-    });
-  });
-
-  // Laser panel — hit-scan beam on the locked target
-  const laserSliders = $('crLaserSliders');
-  const laserDefs = {
-    laserWidth: { label: 'Beam width', min: 0.1, max: 1.5, step: 0.05, unit: '' },
-    laserPower: { label: 'Power', min: 0.2, max: 4, step: 0.1, unit: '' },
-    laserDuration: { label: 'Duration', min: 0.4, max: 3, step: 0.1, unit: ' s' },
-  };
-  for (const [key, def] of Object.entries(laserDefs)) {
-    laserSliders.append(sliderRow(key, def, sysSim[key], v => { sysSim[key] = v; }));
-  }
-  $('crFireLaser').addEventListener('click', fireLaserFromUI);
-}
-
-// Reads the Laser panel and fires; shared by the button and the F key.
-function fireLaserFromUI() {
-  systemView.fireLaser($('crLaserTarget')?.value, {
-    width: sysSim.laserWidth, power: sysSim.laserPower, duration: sysSim.laserDuration,
-    color: new THREE.Color($('crLaserColor').value).getHex(),
-    destructive: $('crLaserDestructive').checked,
   });
 }
 
@@ -1679,7 +1767,7 @@ function refreshSlots() {
     loadBtn.textContent = 'Load';
     loadBtn.addEventListener('click', () => {
       const data = store.load(slot.name);
-      if (data) fadeDip(() => applyState(data));
+      if (data) loadGalaxy(data);
     });
     const delBtn = document.createElement('button');
     delBtn.type = 'button';
@@ -1723,6 +1811,16 @@ function clearWorld() {
   $('crInspector').hidden = true;
 }
 
+// User-initiated galaxy load (slot / import). applyState itself stays routing-
+// free (deep entry calls it directly); this wrapper resyncs the URL when the
+// old galaxy's stellar sub-route no longer applies.
+function loadGalaxy(data) {
+  fadeDip(() => {
+    applyState(data);
+    if (routeSystemSlug) replaceRoute('/creator');
+  });
+}
+
 function applyState(data) {
   const clean = sanitizeState(data);
   if (systemView.active) {          // the entered system is about to be replaced
@@ -1734,7 +1832,7 @@ function applyState(data) {
   }
   clearWorld();
   state.params = clean.params;
-  state.sim = clean.sim;
+  state.sim = { ...clean.sim, dps: clean.sim.dps ?? 10 };   // persistence omits dps; default it
   state.stats = { ...createStats(clean.params), ...clean.stats };
   state.discoveries = new Set(clean.discoveries);
   state.systems = clean.systems;
@@ -1764,7 +1862,7 @@ function importGalaxyFile(event) {
   reader.onload = () => {
     try {
       const data = deserializeState(String(reader.result));
-      fadeDip(() => applyState(data));
+      loadGalaxy(data);
     } catch {
       toast('Import failed — not a valid galaxy file');
     }
@@ -2403,7 +2501,7 @@ function setupUI() {
     const slots = store.listSlots();
     if (!slots.length) return;
     const data = store.load(slots[0].name);
-    if (data) fadeDip(() => applyState(data));
+    if (data) loadGalaxy(data);
   });
   $('crPrevBtn').addEventListener('click', () => showWizardStep(Math.max(0, state.wizardStep - 1)));
   $('crNextBtn').addEventListener('click', () => showWizardStep(Math.min(WIZARD_STEPS.length - 1, state.wizardStep + 1)));
@@ -2424,7 +2522,7 @@ function setupUI() {
       else if (sel?.type === 'planet') systemView.focusPlanet(sel.planet.name);
       else systemView.frameSystem();
     } else if (sel?.type === 'system' || sel?.type === 'planet') {
-      enterSystem(sel.system.id);
+      requestEnterSystem(sel.system.id);
     } else {
       focusSelection();
     }
@@ -2433,7 +2531,10 @@ function setupUI() {
 
   scope.listen(root.querySelector('#creatorBackLink'), 'click', event => {
     event.preventDefault();
-    fadeDip(() => navigate('/modes'));
+    // Inside a system the URL owns the exit (exitSystem runs its own dip); from
+    // the galaxy, dip then leave to the mode menu.
+    if (systemView.active || routeSystemSlug) navigate('/creator');
+    else fadeDip(() => navigate('/modes'));
   });
 
   scope.listen(renderer.domElement, 'pointerdown', event => {
@@ -2455,8 +2556,8 @@ function setupUI() {
       while (node && !node.userData.pick) node = node.parent;
       const pick = node?.userData.pick;
       if (!pick) continue;
-      if (pick.type === 'system') enterSystem(pick.id);
-      else if (pick.type === 'planet') enterSystem(pick.systemId);
+      if (pick.type === 'system') requestEnterSystem(pick.id);
+      else if (pick.type === 'planet') requestEnterSystem(pick.systemId);
       return;
     }
   });
@@ -2470,13 +2571,11 @@ function setupUI() {
     } else if (event.key === 'h' || event.key === 'H') {
       state.uiHidden = !state.uiHidden;
       document.body.classList.toggle('cr-ui-hidden', state.uiHidden);
-    } else if ((event.key === 'f' || event.key === 'F') && systemView.active) {
-      fireLaserFromUI();                 // F fires the laser, As the Gods Will style
     } else if (event.key === 'Escape') {
       if (state.placing) {
         setPlacing(null);
-      } else if (systemView.active) {
-        exitSystem();
+      } else if (systemView.active || routeSystemSlug) {
+        navigate('/creator');              // URL owns the exit; also cancels a mid-flight entry
       } else if (!$('crInspector').hidden) {
         $('crInspector').hidden = true;
       } else if (state.focusSystemId) {
@@ -2520,8 +2619,10 @@ function update(dt) {
   if (state.view === 'system') {
     // The galaxy scene is not on screen; its LOD, lensing and sprite work would
     // all be wasted, so only the clock and the system scene tick.
-    const simScale = state.sim.playing ? SYSTEM_SPEEDS[state.sim.speedIdx] : 0;
-    systemView.update(dt, { simScale, gravityMult: sysSim.gravity, collisions: sysSim.collisions });
+    // dps is simulated days/second; layoutOrbits already carries a ×90 visual
+    // gain, so divide it out to make the Speed slider read as honest d/s.
+    const simScale = state.sim.playing ? state.sim.dps / 90 : 0;
+    systemView.update(dt, { simScale, gravity: simGravity, collisions: simCollisions });
     if (state.stats) advanceSimClock(dt);
     updateEffects(dt);
     return;
@@ -2626,6 +2727,11 @@ spawnGuestGalaxy();
 scope.setInterval(spawnGuestGalaxy, 7000);
 animate();
 
+// Deep link straight to a stellar system (/#/creator/{slug}). Deferred one tick
+// so it runs after mount() returns and the router has recorded this instance — a
+// synchronous replaceRoute during mount would destroy the fresh page.
+if (route?.view === 'system') setTimeout(() => setView('system', route), 0);
+
 window.creator = {
   THREE, camera, controls, renderer, scene, state,
   step: dt => update(dt),                    // headless simulation tick
@@ -2633,21 +2739,15 @@ window.creator = {
   generate(type = 'spiral') {                // skip the wizard from the console/tests
     state.params = defaultParams(type);
     state.stats = createStats(state.params);
-    state.sim = { years: 0, speedIdx: 0, playing: true };
+    state.sim = { years: 0, speedIdx: 1, playing: true, dps: 10 };
     enterSim(true);
     unlock(`galaxy-${type}`, true);
   },
   enterWizard,
   triggerEvent,
-  enterSystem,                               // fly into a stellar system by id
+  enterSystem: requestEnterSystem,           // navigate to a system's route by id
   exitSystem,
   focusCodex: focusCodexEntry,
-  // Gameplay probes for headless verification of the in-system god-tools.
-  spawnAsteroid: (fromCam = false) => systemView.spawnAsteroid(fromCam),
-  spawnComet: () => systemView.spawnComet(),
-  spawnBlackHole: m => systemView.spawnBlackHole(m),
-  launchImpactor: (id, o) => systemView.launchImpactor(id, o),
-  fireLaser: (id, o) => systemView.fireLaser(id, o),
   get systemView() { return systemView; },
   setSpeed(idx) {
     state.sim.speedIdx = Math.min(Math.max(idx, 0), SPEEDS.length - 1);
@@ -2661,7 +2761,6 @@ window.creator = {
   get discoveries() { return [...state.discoveries]; },
   get bloomPass() { return bloomPass; },
   get lensingPass() { return lensingPass; },
-  get flarePass() { return flarePass; },
   // Programmatic placement is one-shot; only the palette arms the sticky tool.
   placeSystemAt: local => {
     state.placing = { mode: 'system', config: { type: 'G', count: 1, ageYr: 4.6e9, tempK: 5700, luminosity: 1 } };
@@ -2708,5 +2807,5 @@ function destroy() {
   if (window.creator === debugHandle) delete window.creator;
 }
 
-return { pause, resume, destroy };
+return { pause, resume, destroy, setView };
 }

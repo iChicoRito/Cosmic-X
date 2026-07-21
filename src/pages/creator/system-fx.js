@@ -8,9 +8,8 @@ const TAU = Math.PI * 2;
 
    Everything decorative that fills the entered-system scene: the far
    sky (star shells, nebulae, a galactic band), drifting cosmic dust,
-   star auras, comet tails, orbital wakes, impact shockwaves and the
-   screen-space lens flare. system-view.js owns the scene graph and
-   the frame loop; this module only builds the pieces and exposes
+   star auras and orbital wakes. system-view.js owns the scene graph
+   and the frame loop; this module only builds the pieces and exposes
    small per-frame tick hooks, so the two stay separable.
 
    Budget notes: every layer here is additive, depthWrite:false and
@@ -56,24 +55,6 @@ export function nebulaTexture(seed) {
   return new THREE.CanvasTexture(canvas);
 }
 
-/* Hollow ring for impact shockwaves — transparent middle so the blast
-   reads as an expanding wave, not a second flash. */
-let shockTex = null;
-export function shockTexture() {
-  if (shockTex) return shockTex;
-  const S = 128;
-  const [canvas, ctx] = makeCanvas(S, S);
-  const grad = ctx.createRadialGradient(S / 2, S / 2, 0, S / 2, S / 2, S / 2);
-  grad.addColorStop(0.5, 'rgba(255,255,255,0)');
-  grad.addColorStop(0.72, 'rgba(255,225,180,0.9)');
-  grad.addColorStop(0.88, 'rgba(255,160,90,0.35)');
-  grad.addColorStop(1, 'rgba(255,130,60,0)');
-  ctx.fillStyle = grad;
-  ctx.fillRect(0, 0, S, S);
-  shockTex = new THREE.CanvasTexture(canvas);
-  return shockTex;
-}
-
 /* Four-point diffraction cross for star sprites. */
 let spikeTex = null;
 export function spikeTexture() {
@@ -99,11 +80,10 @@ export function spikeTexture() {
   return spikeTex;
 }
 
-/* The three module-level singletons above outlive any one system; the page
-   calls this once from destroy() so a remount regenerates them cleanly. */
+/* The module-level singletons above outlive any one system; the page calls this
+   once from destroy() so a remount regenerates them cleanly. */
 export function disposeFxTextures() {
   softPoint?.dispose(); softPoint = null;
-  shockTex?.dispose(); shockTex = null;
   spikeTex?.dispose(); spikeTex = null;
 }
 
@@ -393,73 +373,6 @@ export function createStarAura(radius, color) {
   };
 }
 
-/* ---- comet tails ------------------------------------------------- */
-
-/* Local-space fan along -X; the owner orients the group anti-starward
-   each frame and scales X by distance, so the tail always streams away
-   from the sun and lengthens as the comet dives in. */
-export function createCometTail(starRadius) {
-  const n = 44;
-  const pos = new Float32Array(n * 3);
-  const along = new Float32Array(n);
-  for (let i = 0; i < n; i++) {
-    const t = i / (n - 1);
-    along[i] = t;
-    pos[i * 3] = -t;
-    pos[i * 3 + 1] = (Math.random() - 0.5) * 0.16 * t;
-    pos[i * 3 + 2] = (Math.random() - 0.5) * 0.16 * t;
-  }
-  const geo = new THREE.BufferGeometry();
-  geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
-  geo.setAttribute('aT', new THREE.BufferAttribute(along, 1));
-  const mat = new THREE.ShaderMaterial({
-    uniforms: {
-      uColor: { value: new THREE.Color(0xcfe8ff) },
-      uOpacity: { value: 0.75 },
-      uScale: { value: 240 },
-    },
-    vertexShader: `
-      attribute float aT;
-      uniform float uScale;
-      varying float vT;
-      void main() {
-        vT = aT;
-        vec4 mv = modelViewMatrix * vec4(position, 1.0);
-        gl_PointSize = (1.0 + aT * 5.0) * uScale / max(-mv.z, 1.0);
-        gl_Position = projectionMatrix * mv;
-      }`,
-    fragmentShader: `
-      uniform vec3 uColor; uniform float uOpacity;
-      varying float vT;
-      void main() {
-        float a = smoothstep(0.5, 0.05, length(gl_PointCoord - 0.5));
-        gl_FragColor = vec4(uColor, a * uOpacity * (1.0 - vT) * (1.0 - vT));
-      }`,
-    transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
-  });
-  const points = new THREE.Points(geo, mat);
-  points.frustumCulled = false;
-  const group = new THREE.Group();
-  group.add(points);
-
-  const _dir = new THREE.Vector3();
-  const _x = new THREE.Vector3(1, 0, 0);
-  return {
-    group,
-    /* Point the fan away from `starPos`, stretch with proximity. The tail
-       axis is local -X, so aligning +X with the direction TO the star makes
-       the fan stream anti-starward. */
-    aim(cometWorldPos, starPos) {
-      _dir.copy(starPos).sub(cometWorldPos);
-      const dist = Math.max(_dir.length(), 0.01);
-      group.quaternion.setFromUnitVectors(_x, _dir.normalize());
-      const len = THREE.MathUtils.clamp(starRadius * 26 / dist, starRadius * 1.6, starRadius * 8);
-      group.scale.set(len, starRadius * 1.4, starRadius * 1.4);
-    },
-    dispose() { geo.dispose(); mat.dispose(); },
-  };
-}
-
 /* ---- orbital wake ------------------------------------------------ */
 
 /* Shader for the jittered orbit-lane Points: a bright head that decays
@@ -495,82 +408,4 @@ export function createWakeMaterial() {
       }`,
     transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
   });
-}
-
-/* ---- lens flare / light scattering pass -------------------------- */
-
-/* Screen-space flare composited after bloom: radial scatter, a six-spike
-   star, a halo ring and three ghosts along the optical axis. Cheap: one
-   fullscreen pass, a few exp() calls per fragment, no texture taps
-   beyond tDiffuse. uStrength 0 short-circuits to a plain copy. */
-export function createLensFlareShader(THREERef = THREE) {
-  return {
-    uniforms: {
-      tDiffuse: { value: null },
-      uLightPos: { value: new THREERef.Vector2(0.5, 0.5) },
-      uColor: { value: new THREERef.Color(0xfff2dc) },
-      uStrength: { value: 0 },
-      uAspect: { value: 1 },
-    },
-    vertexShader: `varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }`,
-    fragmentShader: `
-      uniform sampler2D tDiffuse;
-      uniform vec2 uLightPos; uniform vec3 uColor;
-      uniform float uStrength; uniform float uAspect;
-      varying vec2 vUv;
-      float ghost(vec2 uv, vec2 pos, float r) {
-        vec2 d = uv - pos; d.x *= uAspect;
-        // Clamp BEFORE squaring: past the radius the falloff goes negative and
-        // squaring would turn it back into a huge positive, flooding the frame.
-        float g = max(0.0, 1.0 - length(d) / r);
-        return g * g;
-      }
-      void main() {
-        vec4 base = texture2D(tDiffuse, vUv);
-        if (uStrength <= 0.001) { gl_FragColor = base; return; }
-        vec2 d = vUv - uLightPos; d.x *= uAspect;
-        float dist = length(d);
-        float ang = atan(d.y, d.x);
-        // Tight core, narrow ring, angularly-thin spikes: the flare must read as
-        // light scattering off the lens, not a veil raising the whole frame.
-        float core = exp(-dist * 20.0) * 0.7;
-        float spikes = pow(abs(cos(ang * 3.0)), 22.0) * exp(-dist * 9.0) * 0.35;
-        float ring = exp(-abs(dist - 0.26) * 60.0) * 0.06;
-        vec2 axis = vec2(0.5) - uLightPos;
-        float g = ghost(vUv, uLightPos + axis * 0.8, 0.05) * 0.18
-                + ghost(vUv, uLightPos + axis * 1.35, 0.03) * 0.14
-                + ghost(vUv, uLightPos + axis * 1.8, 0.085) * 0.10;
-        vec3 flare = uColor * (core + spikes + ring) + uColor.bgr * g;
-        gl_FragColor = vec4(base.rgb + flare * uStrength, base.a);
-      }`,
-  };
-}
-
-/* ---- impact shockwave ------------------------------------------- */
-
-/* Expanding ring sprite; returns a sysEffects-compatible record. */
-export function createShockwave(at, size, parent) {
-  const sprite = new THREE.Sprite(new THREE.SpriteMaterial({
-    map: shockTexture(), color: 0xffd9b0,
-    transparent: true, opacity: 0.9,
-    blending: THREE.AdditiveBlending, depthWrite: false,
-  }));
-  sprite.material.userData.shared = true;   // map is the module singleton
-  sprite.position.copy(at);
-  sprite.scale.setScalar(size * 0.3);
-  parent.add(sprite);
-  return {
-    t: 0, dur: 0.9,
-    tick(dt) {
-      this.t += dt;
-      const u = this.t / this.dur;
-      sprite.scale.setScalar(size * (0.3 + u * 3.2));
-      sprite.material.opacity = Math.max(0, 0.9 * (1 - u) * (1 - u));
-      return this.t >= this.dur;
-    },
-    dispose() {
-      parent.remove(sprite);
-      sprite.material.dispose();            // not the map — it is shared
-    },
-  };
 }

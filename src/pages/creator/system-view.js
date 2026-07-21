@@ -1,12 +1,13 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { Lensflare, LensflareElement } from 'three/addons/objects/Lensflare.js';
 import { makeCanvas } from '../../shared/procedural-canvas.js';
 import { systemViewLayout } from './systems.js';
 import {
   ATMOSPHERE_SHELL, createPlanetSurface, createRingTexture, createStarSurface, makeAtmosphere,
 } from './planet-textures.js';
 import {
-  createCometTail, createDustFields, createShockwave, createStarAura,
+  createDustFields, createStarAura,
   createSystemSky, createWakeMaterial, disposeFxTextures, nebulaTexture,
   softPointTexture,
 } from './system-fx.js';
@@ -31,7 +32,7 @@ export const CAMERA_MODES = [
 ];
 
 export function createSystemView({
-  renderer, renderPass, flarePass, scope, galaxyScene, galaxyCamera, galaxyControls,
+  renderer, renderPass, scope, galaxyScene, galaxyCamera, galaxyControls,
   makeLabel, onPick, onToast, onBodiesChanged,
 }) {
   const scene = new THREE.Scene();
@@ -51,14 +52,7 @@ export function createSystemView({
   let env = null;                // { sky, dust }
   const fxOpts = { density: 1, nebulae: true, twinkle: true };
   let auras = [];                // star fresnel shells (ticked)
-  let cometTails = [];           // tails for layout comets, parallel to cometNodes
-  let flareStrength = 0;         // smoothed toward its per-frame target
-
-  // Spawned bodies and transient effects live here, at scene root rather than in
-  // `group`, so `group`'s disposeTree never eats the shared rock geo/material and
-  // a system rebuild doesn't silently wipe an in-flight impact.
-  const dynGroup = new THREE.Group();
-  scene.add(dynGroup);
+  let flares = [];               // three.js Lensflare objects, one per star
 
   const textures = new Map();
   let group = null;              // everything belonging to the entered system
@@ -66,7 +60,6 @@ export function createSystemView({
   let system = null;
   let planetNodes = [];
   let moonNodes = [];
-  let cometNodes = [];
   let trailNodes = [];
   let starNodes = [];
   let coronas = [];
@@ -74,28 +67,31 @@ export function createSystemView({
   let active = false;
   let elapsed = 0;
 
-  /* ---- gameplay substrate (spawn / impact / laser / gravity) ------ */
-  // Created systems get the As the Gods Will god-mode tools against this scene's
-  // simpler mesh model: free bodies fall under a hand-tuned gravity field, laser
-  // and impacts share one damage ladder, and transient effects live in the scene.
-  const dynBodies = [];          // free bodies: asteroids, comets, converted planets
-  const holes = [];              // spawned in-system black holes (extra attractors)
-  const attractors = [];         // { pos:Vector3, gm, soft } — stars + holes
-  const sysEffects = [];         // transient flashes / debris / beams (tick+dispose)
-  let simScale = 1;              // sim-time multiplier from the transport (0 = paused)
+  // Sim-time multiplier from the transport (0 = paused); the orbits and the
+  // environment tick against it.
+  let simScale = 1;
+
+  /* ---- Sim tab substrate: resident asteroids under stellar gravity --------
+     Planets and moons stay on their rails; only these free bodies feel gravity.
+     Passive: an asteroid that hits a planet/star is absorbed with a flash, never
+     destroying the world. All gated by the Sim tab toggles. */
+  const dynGroup = new THREE.Group();
+  scene.add(dynGroup);
+  const asteroids = [];          // { mesh, vel:Vector3, r }
+  const attractors = [];         // { pos:Vector3, gm, soft } — the host stars
+  const sysFx = [];              // transient absorb flashes (tick + dispose)
   let gravityMult = 1;
-  let collisionsOn = true;
-  let laserCooldown = 0;
-  // ponytail: one global GM tuned for pleasant on-screen orbits, not real units —
-  // the scene's distances are already log-compressed and cosmetic. Bump if bodies
-  // crawl, cut if they slingshot. Circular speed anywhere is sqrt(gm·mass/r).
+  let collisionsOn = false;
+  let residentsOn = false;
+  let eclipsesOn = false;
+  let primaryLight = null;       // the star light that casts eclipse shadows
+  // ponytail: one global GM tuned for pleasant on-screen orbits, not real units.
   const GM_UNIT = 6000;
   const rockGeo = new THREE.IcosahedronGeometry(1, 0);
   const rockMat = new THREE.MeshStandardMaterial({ color: 0x8b8175, roughness: 1, metalness: 0, flatShading: true });
   const _acc = new THREE.Vector3();
   const _dir = new THREE.Vector3();
   const _wp = new THREE.Vector3();
-  const _wp2 = new THREE.Vector3();
 
   let follow = null;
   const followOffset = new THREE.Vector3();
@@ -115,22 +111,19 @@ export function createSystemView({
     return textures.get(key);
   }
 
-  function glowSprite(color, scale) {
-    const S = 128;
+  /* Warm radial-gradient texture for the corona shells and the lens-flare
+     elements — the As the Gods Will star recipe (createGlowTexture). */
+  function glowTexture(inner, mid, outer) {
+    const S = 256;
     const [canvas, ctx] = makeCanvas(S, S);
     const grad = ctx.createRadialGradient(S / 2, S / 2, 0, S / 2, S / 2, S / 2);
-    grad.addColorStop(0, 'rgba(255,255,255,1)');
-    grad.addColorStop(0.22, 'rgba(255,255,255,0.3)');
-    grad.addColorStop(0.55, 'rgba(255,255,255,0.06)');
-    grad.addColorStop(1, 'rgba(255,255,255,0)');
+    grad.addColorStop(0, inner);
+    grad.addColorStop(0.25, mid);
+    grad.addColorStop(0.6, outer);
+    grad.addColorStop(1, 'rgba(0,0,0,0)');
     ctx.fillStyle = grad;
     ctx.fillRect(0, 0, S, S);
-    const sprite = new THREE.Sprite(new THREE.SpriteMaterial({
-      map: new THREE.CanvasTexture(canvas),
-      color, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
-    }));
-    sprite.scale.setScalar(scale);
-    return sprite;
+    return new THREE.CanvasTexture(canvas);
   }
 
   /* Sky + dust for the entered system. Density comes from the FX panel's
@@ -175,7 +168,7 @@ export function createSystemView({
     system = target;
     layout = systemViewLayout(target);
     group = new THREE.Group();
-    planetNodes = []; moonNodes = []; cometNodes = []; trailNodes = []; starNodes = []; coronas = [];
+    planetNodes = []; moonNodes = []; trailNodes = []; starNodes = []; coronas = [];
 
     layout.stars.forEach((star, i) => {
       const mesh = new THREE.Mesh(
@@ -188,17 +181,22 @@ export function createSystemView({
       mesh.userData.targetId = `star:${i}`;
       mesh.userData.spin = 0.02;
 
-      // Corona: two breathing shells. Kept dim on purpose — the task-15 glow
-      // budget exists because fat halos are what buried the planets.
-      for (const [factor, opacity] of [[2.6, 0.32], [4.2, 0.14]]) {
-        const sprite = glowSprite(star.color, star.radius * factor);
-        sprite.material.opacity = opacity;
+      // Corona: two warm additive shells sized like the As the Gods Will sun, so
+      // the star reads as a light source rather than a flat lit disc.
+      const coronaTex = cached('corona', () =>
+        glowTexture('rgba(255,220,160,1)', 'rgba(255,160,60,0.45)', 'rgba(255,100,30,0.12)'));
+      for (const [factor, opacity, tint] of [[5.2, 0.7, 0xffb45e], [8.7, 0.32, 0xff7a2a]]) {
+        const sprite = new THREE.Sprite(new THREE.SpriteMaterial({
+          map: coronaTex, color: tint, transparent: true,
+          depthWrite: false, blending: THREE.AdditiveBlending,
+        }));
+        sprite.material.userData.shared = true;   // map is cached, not per-sprite
+        sprite.scale.setScalar(star.radius * factor);
         sprite.userData.breathe = { base: star.radius * factor, phase: i * 1.7 };
         mesh.add(sprite);
         coronas.push(sprite);
       }
-      // Aura: rim-only fresnel shell + diffraction spikes. Transparent across
-      // the disc, so it adds presence without re-fattening the halo.
+      // Rim-only fresnel shell + diffraction spikes on top of the corona.
       const aura = createStarAura(star.radius, star.color);
       mesh.add(aura.group);
       auras.push(aura);
@@ -211,14 +209,31 @@ export function createSystemView({
       const light = new THREE.PointLight(star.color, i === 0 ? 2.2 : 1.1, 0, 0);
       light.position.copy(mesh.position);
       group.add(light);
+      if (i === 0) primaryLight = light;   // this one casts the eclipse shadows
 
-      // Gravity source for the spawn/impact substrate. Stars are static in group
-      // space, so the position reference stays valid for the system's lifetime.
+      // Gravity source for the resident-asteroid substrate. Stars are static in
+      // group space, so the position reference stays valid for the system's life.
       attractors.push({
         pos: mesh.position,
         gm: GM_UNIT * (target.stars[i]?.massSuns ?? 1),
         soft: Math.max(star.radius * star.radius, 1),
       });
+
+      // The As the Gods Will lens flare: a classic multi-element flare on the
+      // primary star's light, with three.js handling the occlusion test.
+      if (i === 0) {
+        const flare = new Lensflare();
+        flare.addElement(new LensflareElement(
+          cached('flare:0', () => glowTexture('rgba(255,240,200,1)', 'rgba(255,180,90,0.35)', 'rgba(255,120,40,0.08)')), 380, 0));
+        flare.addElement(new LensflareElement(
+          cached('flare:1', () => glowTexture('rgba(180,210,255,0.6)', 'rgba(140,180,255,0.2)', 'rgba(100,140,255,0.04)')), 90, 0.35));
+        flare.addElement(new LensflareElement(
+          cached('flare:2', () => glowTexture('rgba(255,200,150,0.5)', 'rgba(255,170,110,0.15)', 'rgba(255,140,80,0.03)')), 130, 0.62));
+        flare.addElement(new LensflareElement(
+          cached('flare:3', () => glowTexture('rgba(200,220,255,0.4)', 'rgba(170,200,255,0.12)', 'rgba(140,170,255,0.02)')), 60, 0.9));
+        light.add(flare);
+        flares.push(flare);
+      }
     });
 
     const hz = layout.habitableZone;
@@ -308,27 +323,13 @@ export function createSystemView({
 
     if (layout.belt) group.add(buildBelt(layout.belt));
 
-    for (let c = 0; c < layout.comets; c++) {
-      const comet = glowSprite(0xdcefff, layout.starRadius * 0.5);
-      comet.userData.orbit = {
-        base: layout.edge * (1.05 + c * 0.09),
-        r: layout.edge * (1.05 + c * 0.09),
-        angle: Math.random() * TAU,
-        period: 2400 + c * 900,
-      };
-      group.add(comet);
-      cometNodes.push(comet);
-      // Tail lives beside the sprite, not inside it — the sprite's own scale
-      // must not stretch the fan. aimed every frame in layoutOrbits.
-      const tail = createCometTail(layout.starRadius);
-      group.add(tail.group);
-      cometTails.push(tail);
-    }
-
     scene.add(group);
     buildEnv(target);
     applyOrbitScale();
     layoutOrbits(0);
+    // Re-establish Sim-tab state for the (re)built system.
+    applyEclipseShadows();
+    if (residentsOn) spawnResidents();
   }
 
   // The ring strip is a 512x32 texture sampled across the ring's WIDTH, so the
@@ -401,16 +402,18 @@ export function createSystemView({
 
   function clearGroup() {
     follow = null;                 // the followed node is about to be disposed
-    resetGameplay();               // drop spawned bodies, holes, effects, attractors
     disposeEnv();
-    flareStrength = 0;
-    if (flarePass) flarePass.uniforms.uStrength.value = 0;
+    clearResidents();              // drop free bodies + transient flashes
+    attractors.length = 0;         // stars are about to be disposed; re-seed on build
+    primaryLight = null;
+    for (const flare of flares) flare.dispose();
+    flares = [];
     if (!group) return;
     scene.remove(group);
-    disposeTree(group);            // also walks aura shells and tail points
+    disposeTree(group);            // also walks aura shells and corona sprites
     group = null;
-    planetNodes = []; moonNodes = []; cometNodes = []; trailNodes = []; starNodes = []; coronas = [];
-    auras = []; cometTails = [];
+    planetNodes = []; moonNodes = []; trailNodes = []; starNodes = []; coronas = [];
+    auras = [];
   }
 
   /* ---- motion ------------------------------------------------------ */
@@ -419,7 +422,6 @@ export function createSystemView({
     // Orbital rates are cosmetic: real periods span four orders of magnitude,
     // which would leave the outer worlds visually frozen.
     for (const node of planetNodes) {
-      if (node.userData.dyn) continue;      // gravity owns this one now
       const orbit = node.userData.orbit;
       orbit.angle += dt * (TAU / orbit.period) * 90;
       node.position.set(Math.cos(orbit.angle) * orbit.r, 0, Math.sin(orbit.angle) * orbit.r);
@@ -431,37 +433,20 @@ export function createSystemView({
       moon.position.set(Math.cos(m.angle) * m.r, 0, Math.sin(m.angle) * m.r);
     }
     for (const star of starNodes) star.rotation.y += dt * star.userData.spin;
-    for (let c = 0; c < cometNodes.length; c++) {
-      const comet = cometNodes[c];
-      const orbit = comet.userData.orbit;
-      orbit.angle += dt * (TAU / orbit.period) * 90;
-      comet.position.set(Math.cos(orbit.angle) * orbit.r, orbit.r * 0.06, Math.sin(orbit.angle) * orbit.r);
-      const tail = cometTails[c];
-      if (tail) {
-        tail.group.position.copy(comet.position);
-        tail.aim(comet.position, _wp2.set(0, 0, 0));
-      }
-    }
     for (const sprite of coronas) {
       const b = sprite.userData.breathe;
       sprite.scale.setScalar(b.base * (1 + Math.sin(elapsed * 0.8 + b.phase) * 0.04));
     }
-    // Wake heads track their worlds; a destroyed or free-falling planet just
-    // leaves its lane at the last railed angle.
+    // Wake heads track their worlds along the railed orbit angle.
     for (const trailPts of trailNodes) {
       const mate = trailPts.userData.mate;
-      if (mate && !mate.userData.dead && !mate.userData.dyn) {
-        trailPts.material.uniforms.uHead.value = mate.userData.orbit.angle % TAU;
-      }
+      if (mate) trailPts.material.uniforms.uHead.value = mate.userData.orbit.angle % TAU;
     }
   }
 
   function applyOrbitScale() {
     for (const node of planetNodes) {
       node.userData.orbit.r = node.userData.orbit.base * view.orbitScale;
-    }
-    for (const comet of cometNodes) {
-      comet.userData.orbit.r = comet.userData.orbit.base * view.orbitScale;
     }
     for (const trail of trailNodes) {
       const r = trail.userData.radius * view.orbitScale;
@@ -470,15 +455,7 @@ export function createSystemView({
     }
   }
 
-  /* ---- gameplay: gravity, spawn, impact, laser -------------------- */
-
-  function resetGameplay() {
-    for (const b of dynBodies) if (!b.isPlanet) b.dispose?.();
-    for (const h of holes) h.dispose?.();
-    for (const fx of sysEffects) fx.dispose?.();
-    dynBodies.length = 0; holes.length = 0; sysEffects.length = 0; attractors.length = 0;
-    laserCooldown = 0;
-  }
+  /* ---- resident-asteroid substrate (Sim tab) ---------------------- */
 
   function gravityAt(pos, out) {
     out.set(0, 0, 0);
@@ -490,120 +467,82 @@ export function createSystemView({
     return out;
   }
 
-  // Speed of a circular orbit at a point, for seeding spawns and converted
-  // planets so they start on a believable arc instead of dropping straight in.
-  function circularSpeed(pos) {
-    gravityAt(pos, _acc);
-    const r = Math.max(pos.distanceTo(attractors[0]?.pos ?? pos), 0.5);
-    return Math.sqrt(Math.max(_acc.length(), 1e-4) * r);
-  }
-
-  function seedOrbitalVelocity(body, frac = 1) {
-    const star = attractors[0]?.pos ?? _wp2.set(0, 0, 0);
+  // Tangential velocity for a believable near-circular orbit about the barycentre.
+  function seedCircular(body) {
+    const star = attractors[0]?.pos ?? _wp.set(0, 0, 0);
     _dir.copy(body.mesh.position).sub(star); _dir.y = 0;
     if (_dir.lengthSq() < 1e-3) _dir.set(1, 0, 0);
+    gravityAt(body.mesh.position, _acc);
+    const r = Math.max(body.mesh.position.distanceTo(star), 0.5);
+    const speed = Math.sqrt(Math.max(_acc.length(), 1e-4) * r) * (0.85 + Math.random() * 0.3);
     const tx = -_dir.z, tz = _dir.x, tl = Math.hypot(tx, tz) || 1;
-    body.vel.set(tx / tl, 0, tz / tl).multiplyScalar(circularSpeed(body.mesh.position) * frac);
+    body.vel.set(tx / tl, 0, tz / tl).multiplyScalar(speed);
   }
 
-  function makeBody(mesh, { mass, r, kind, isPlanet = false }) {
-    return {
-      mesh, vel: new THREE.Vector3(), mass, r, kind, isPlanet,
-      isProjectile: false, homing: false, destructive: false, target: null,
-      dispose() { dynGroup.remove(mesh); },   // shared rock geo/mat stay alive
-    };
+  function spawnResidents() {
+    clearResidents();
+    if (!layout) return;
+    const n = Math.min(14, 8 + Math.round((layout.edge || 40) / 20));
+    const band = layout.belt || layout.edge * 0.8;
+    for (let i = 0; i < n; i++) {
+      const mesh = new THREE.Mesh(rockGeo, rockMat);
+      mesh.scale.setScalar(0.25 + Math.random() * 0.5);
+      const a = Math.random() * TAU, r = band * (0.7 + Math.random() * 0.6);
+      mesh.position.set(Math.cos(a) * r, (Math.random() - 0.5) * 2, Math.sin(a) * r);
+      dynGroup.add(mesh);
+      const body = { mesh, vel: new THREE.Vector3(), r: mesh.scale.x };
+      seedCircular(body);
+      asteroids.push(body);
+    }
   }
 
-  function integrate(body, sdt) {
-    const steps = Math.min(48, 1 + Math.floor(sdt / 0.015));
+  function clearResidents() {
+    for (const body of asteroids) dynGroup.remove(body.mesh);
+    asteroids.length = 0;
+    for (const fx of sysFx) fx.dispose();
+    sysFx.length = 0;
+  }
+
+  function integrateAsteroid(body, sdt) {
+    const steps = Math.min(24, 1 + Math.floor(sdt / 0.02));
     const h = sdt / steps;
     for (let s = 0; s < steps; s++) {
-      if (body.homing && body.target && !body.target.userData.dead) {
-        body.target.getWorldPosition(_wp2);
-        _dir.copy(_wp2).sub(body.mesh.position).normalize().multiplyScalar(body.vel.length());
-        body.vel.lerp(_dir, 0.05);            // terminal guidance toward the target
-      }
       gravityAt(body.mesh.position, _acc);
       body.vel.addScaledVector(_acc, h);
       body.mesh.position.addScaledVector(body.vel, h);
     }
-    body.mesh.rotation.x += sdt * 1.3;
-    body.mesh.rotation.y += sdt * 0.9;
+    body.mesh.rotation.x += sdt; body.mesh.rotation.y += sdt * 0.7;
   }
 
-  function collide(body) {
-    if (!collisionsOn && !body.isProjectile) return false;
-    const p = body.mesh.position;
-    for (const s of starNodes) {
-      const sr = s.geometry.parameters.radius * 1.04 + body.r;
-      if (p.distanceToSquared(s.position) < sr * sr) { absorb(body, s.position, s.material.color); return true; }
-    }
-    for (const h of holes) {
-      if (p.distanceToSquared(h.position) < h.userData.grab * h.userData.grab) { absorb(body, h.position, null); return true; }
-    }
-    for (const planet of planetNodes) {
-      if (planet === body.mesh || planet.userData.dead) continue;
-      const pr = planet.geometry.parameters.radius * planet.scale.x + body.r;
-      planet.getWorldPosition(_wp);
-      if (p.distanceToSquared(_wp) < pr * pr) { impactPlanet(body, planet, _wp); return true; }
-    }
-    return false;
+  // Absorbed, never destructive: the asteroid vanishes in a small flash; the
+  // planet/star is untouched. dynGroup lives at scene root so this is safe.
+  function absorbAsteroid(body, at, color) {
+    flashAt(at, color, body.r * 3 + 1);
+    removeAsteroid(body);
   }
 
-  function absorb(body, at, color) {
-    flash(at, color ? new THREE.Color(color) : new THREE.Color(0xffffff), body.r * 3 + 1.5);
-    removeBody(body);
+  function removeAsteroid(body) {
+    const i = asteroids.indexOf(body);
+    if (i >= 0) asteroids.splice(i, 1);
+    dynGroup.remove(body.mesh);
   }
 
-  function impactPlanet(body, planet, at) {
-    const speed = body.vel.length();
-    const energy = 0.5 * body.mass * speed * speed;
-    const planetR = planet.geometry.parameters.radius;
-    const threshold = 45 * planetR * planetR * planetR;   // volume proxy for "toughness"
-    flash(at, new THREE.Color(0xffd9a0), planetR * 2 + 2);
-    spawnDebris(at, body.vel, Math.min(26, 8 + Math.floor(energy / 40)));
-    const destroyed = energy > threshold || body.destructive;
-    removeBody(body);
-    if (destroyed) destroyPlanetNode(planet);
-    else scorch(planet);
-    onBodiesChanged?.();
-  }
-
-  function scorch(planet) {
-    if (planet.material?.color) planet.material.color.multiplyScalar(0.72);
-  }
-
-  function destroyPlanetNode(planet) {
-    if (planet.userData.dead) return;
-    planet.userData.dead = true;
-    planet.getWorldPosition(_wp);
-    flash(_wp.clone(), new THREE.Color(0xffb060), planet.geometry.parameters.radius * 4 + 4);
-    spawnDebris(_wp, _wp2.set(0, 0, 0), 30);
-    for (let i = moonNodes.length - 1; i >= 0; i--) if (moonNodes[i].parent === planet) moonNodes.splice(i, 1);
-    const pi = planetNodes.indexOf(planet);
-    if (pi >= 0) planetNodes.splice(pi, 1);
-    const di = dynBodies.findIndex(b => b.mesh === planet);
-    if (di >= 0) dynBodies.splice(di, 1);
-    if (follow === planet) { follow = null; mode = 'orbit'; controls.enabled = true; }
-    group.remove(planet);
-    disposeTree(planet);
-  }
-
-  function removeBody(body) {
-    if (body.isPlanet) { destroyPlanetNode(body.mesh); return; }
-    const i = dynBodies.indexOf(body);
-    if (i >= 0) dynBodies.splice(i, 1);
-    body.dispose?.();
-  }
-
-  function flash(at, color, size) {
-    sysEffects.push(createShockwave(at, size * 2.2, dynGroup));
-    const sprite = glowSprite(color.getHex(), size * 0.4);
-    sprite.material.opacity = 1;
+  function flashAt(at, color, size) {
+    const S = 64;
+    const [canvas, ctx] = makeCanvas(S, S);
+    const grad = ctx.createRadialGradient(S / 2, S / 2, 0, S / 2, S / 2, S / 2);
+    grad.addColorStop(0, 'rgba(255,255,255,1)');
+    grad.addColorStop(0.4, 'rgba(255,255,255,0.4)');
+    grad.addColorStop(1, 'rgba(255,255,255,0)');
+    ctx.fillStyle = grad; ctx.fillRect(0, 0, S, S);
+    const sprite = new THREE.Sprite(new THREE.SpriteMaterial({
+      map: new THREE.CanvasTexture(canvas), color, transparent: true,
+      depthWrite: false, blending: THREE.AdditiveBlending,
+    }));
     sprite.position.copy(at);
     dynGroup.add(sprite);
-    sysEffects.push({
-      t: 0, dur: 0.7,
+    sysFx.push({
+      t: 0, dur: 0.6,
       tick(dt) {
         this.t += dt;
         const u = this.t / this.dur;
@@ -615,258 +554,80 @@ export function createSystemView({
     });
   }
 
-  function spawnDebris(at, baseVel, count) {
-    const pos = new Float32Array(count * 3);
-    const vel = [];
-    for (let i = 0; i < count; i++) {
-      pos[i * 3] = at.x; pos[i * 3 + 1] = at.y; pos[i * 3 + 2] = at.z;
-      vel.push(new THREE.Vector3(Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5)
-        .multiplyScalar(4 + Math.random() * 6).addScaledVector(baseVel, 0.2));
-    }
-    const geo = new THREE.BufferGeometry();
-    geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
-    const points = new THREE.Points(geo, new THREE.PointsMaterial({
-      color: 0xffcaa0, size: 0.35, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
-    }));
-    dynGroup.add(points);
-    sysEffects.push({
-      t: 0, dur: 1.6,
-      tick(dt) {
-        this.t += dt;
-        const arr = geo.attributes.position.array;
-        for (let i = 0; i < count; i++) {
-          arr[i * 3] += vel[i].x * dt; arr[i * 3 + 1] += vel[i].y * dt; arr[i * 3 + 2] += vel[i].z * dt;
+  function stepAsteroids(sdt) {
+    const capped = Math.min(sdt, 0.4);
+    for (let i = asteroids.length - 1; i >= 0; i--) {
+      const body = asteroids[i];
+      integrateAsteroid(body, capped);
+      const p = body.mesh.position;
+      let hit = false;
+      if (collisionsOn) {
+        for (const s of starNodes) {
+          const sr = s.geometry.parameters.radius + body.r;
+          if (p.distanceToSquared(s.position) < sr * sr) { absorbAsteroid(body, s.position.clone(), new THREE.Color(0xffd9a0)); hit = true; break; }
         }
-        geo.attributes.position.needsUpdate = true;
-        points.material.opacity = Math.max(0, 1 - this.t / this.dur);
-        return this.t >= this.dur;
-      },
-      dispose() { dynGroup.remove(points); geo.dispose(); points.material.dispose(); },
-    });
-  }
-
-  function spawnAsteroid(fromCamera = true) {
-    if (!layout) return null;
-    const mesh = new THREE.Mesh(rockGeo, rockMat);
-    mesh.scale.setScalar(0.3 + Math.random() * 0.5);
-    if (fromCamera) {
-      camera.getWorldDirection(_dir);
-      mesh.position.copy(camera.position).addScaledVector(_dir, layout.starRadius * 2);
-    } else {
-      const a = Math.random() * TAU, r = layout.edge * (0.6 + Math.random() * 0.4);
-      mesh.position.set(Math.cos(a) * r, (Math.random() - 0.5) * 2, Math.sin(a) * r);
-    }
-    dynGroup.add(mesh);
-    const body = makeBody(mesh, { mass: 0.4, r: mesh.scale.x, kind: 'asteroid' });
-    seedOrbitalVelocity(body, 0.85 + Math.random() * 0.4);
-    dynBodies.push(body);
-    onBodiesChanged?.();
-    return body;
-  }
-
-  function spawnComet() {
-    if (!layout) return null;
-    const a = Math.random() * TAU, r = layout.edge * (1.0 + Math.random() * 0.3);
-    const sprite = glowSprite(0xdcefff, layout.starRadius * 0.5);
-    sprite.position.set(Math.cos(a) * r, 0, Math.sin(a) * r);
-    dynGroup.add(sprite);
-    const tail = createCometTail(layout.starRadius);
-    dynGroup.add(tail.group);
-    const body = makeBody(sprite, { mass: 0.2, r: 0.4, kind: 'comet' });
-    body.tail = tail;
-    body.dispose = () => {
-      dynGroup.remove(sprite, tail.group);
-      sprite.material.map?.dispose(); sprite.material.dispose();
-      tail.dispose();
-    };
-    seedOrbitalVelocity(body, 0.5);       // sub-circular so it dives on an eccentric arc
-    dynBodies.push(body);
-    onBodiesChanged?.();
-    return body;
-  }
-
-  function spawnBlackHole(massMult = 40) {
-    if (!layout) return null;
-    camera.getWorldDirection(_dir);
-    const core = new THREE.Mesh(
-      new THREE.SphereGeometry(layout.starRadius * 0.5, 24, 18),
-      new THREE.MeshBasicMaterial({ color: 0x05060a }));
-    core.position.copy(camera.position).addScaledVector(_dir, layout.framing * 0.4);
-    core.position.y = 0;
-    const disk = glowSprite(0x7fb2ff, layout.starRadius * 2.4);
-    core.add(disk);
-    core.userData.grab = layout.starRadius * 0.7;
-    core.dispose = () => {
-      dynGroup.remove(core); core.geometry.dispose(); core.material.dispose();
-      disk.material.map?.dispose(); disk.material.dispose();
-    };
-    dynGroup.add(core);
-    holes.push(core);
-    attractors.push({ pos: core.position, gm: GM_UNIT * massMult, soft: (layout.starRadius * 0.5) ** 2 });
-    for (const p of [...planetNodes]) makeDynamic(p);   // the whole system goes free-fall
-    onToast?.('A black hole tears open the system');
-    onBodiesChanged?.();
-    return core;
-  }
-
-  function makeDynamic(planet) {
-    if (planet.userData.dyn || planet.userData.dead) return;
-    planet.userData.dyn = true;
-    const body = makeBody(planet, {
-      mass: 6, r: planet.geometry.parameters.radius * planet.scale.x, kind: 'planet', isPlanet: true,
-    });
-    seedOrbitalVelocity(body, 1);
-    dynBodies.push(body);
-  }
-
-  function launchImpactor(targetId, opts = {}) {
-    const target = nodeForTarget(targetId) || planetNodes[0];
-    if (!target || !layout) { onToast?.('No world to strike'); return null; }
-    const mesh = new THREE.Mesh(rockGeo, rockMat);
-    mesh.scale.setScalar(opts.size ?? 0.5);
-    const a = Math.random() * TAU, ring = layout.edge * 1.1;
-    mesh.position.set(Math.cos(a) * ring, (Math.random() - 0.5) * 3, Math.sin(a) * ring);
-    dynGroup.add(mesh);
-    const body = makeBody(mesh, { mass: opts.mass ?? 1.4, r: mesh.scale.x, kind: 'impactor' });
-    body.isProjectile = true;
-    body.target = target;
-    body.homing = opts.homing ?? true;
-    target.getWorldPosition(_wp);
-    _dir.copy(_wp).sub(mesh.position).normalize();
-    body.vel.copy(_dir).multiplyScalar((opts.speed ?? 1) * circularSpeed(mesh.position) * 2.4);
-    dynBodies.push(body);
-    onBodiesChanged?.();
-    return body;
-  }
-
-  function fireLaser(targetId, opts = {}) {
-    if (laserCooldown > 0 || !active) return false;
-    const target = nodeForTarget(targetId) || planetNodes[0] || starNodes[0];
-    if (!target) { onToast?.('No target locked'); return false; }
-    laserCooldown = 0.35;
-    const width = opts.width ?? 0.4;
-    const color = opts.color ?? 0xff4d6d;
-    const dur = opts.duration ?? 1.1;
-    camera.getWorldDirection(_dir);
-    const start = camera.position.clone().addScaledVector(_dir, layout ? layout.starRadius : 1).add(_wp2.set(0, -0.4, 0));
-    const beam = new THREE.Group();
-    const coreMat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false });
-    const glowMat = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.5, blending: THREE.AdditiveBlending, depthWrite: false });
-    const coreCyl = new THREE.Mesh(new THREE.CylinderGeometry(width * 0.35, width * 0.35, 1, 8, 1, true), coreMat);
-    const glowCyl = new THREE.Mesh(new THREE.CylinderGeometry(width, width, 1, 8, 1, true), glowMat);
-    beam.add(coreCyl, glowCyl);
-    dynGroup.add(beam);
-    const up = new THREE.Vector3(0, 1, 0);
-    const place = () => {
-      target.getWorldPosition(_wp);
-      const len = start.distanceTo(_wp);
-      beam.position.copy(start).add(_wp).multiplyScalar(0.5);
-      beam.scale.set(1, len, 1);
-      beam.quaternion.setFromUnitVectors(up, _wp.clone().sub(start).normalize());
-    };
-    place();
-    sysEffects.push({
-      t: 0, dur,
-      tick(dt) {
-        this.t += dt;
-        if (!target.userData.dead) place();
-        const u = this.t / this.dur;
-        coreMat.opacity = Math.max(0, 1 - u);
-        glowMat.opacity = Math.max(0, 0.5 * (1 - u));
-        return this.t >= this.dur;
-      },
-      dispose() { dynGroup.remove(beam); coreCyl.geometry.dispose(); glowCyl.geometry.dispose(); coreMat.dispose(); glowMat.dispose(); },
-    });
-    target.getWorldPosition(_wp);
-    flash(_wp.clone(), new THREE.Color(color), (target.geometry?.parameters?.radius ?? 1) * 1.5 + 1);
-    if (opts.destructive !== false && !starNodes.includes(target)) {
-      const pr = target.geometry.parameters.radius;
-      if ((opts.power ?? 1) * 3 > pr) destroyPlanetNode(target);
-      else scorch(target);
-      onBodiesChanged?.();
-    }
-    return true;
-  }
-
-  function clearSpawned() {
-    for (const b of dynBodies) {
-      if (b.isPlanet) b.mesh.userData.dyn = false;   // hand converted planets back to rails
-      else b.dispose?.();
-    }
-    dynBodies.length = 0;
-    for (const h of holes) {
-      const ai = attractors.findIndex(a => a.pos === h.position);
-      if (ai >= 0) attractors.splice(ai, 1);
-      h.dispose?.();
-    }
-    holes.length = 0;
-    for (const fx of sysEffects) fx.dispose?.();
-    sysEffects.length = 0;
-    onBodiesChanged?.();
-  }
-
-  function stepPhysics(sdt) {
-    const capped = Math.min(sdt, 0.4);       // a huge speed tier must not tunnel bodies
-    for (let i = dynBodies.length - 1; i >= 0; i--) {
-      const body = dynBodies[i];
-      integrate(body, capped);
-      if (body.tail) {
-        body.tail.group.position.copy(body.mesh.position);
-        body.tail.aim(body.mesh.position, attractors[0]?.pos ?? _wp2.set(0, 0, 0));
-      }
-      if (collide(body)) continue;
-      if (body.mesh.position.lengthSq() > (layout.framing * 6) ** 2) removeBody(body);
-    }
-  }
-
-  function updateSysEffects(dt) {
-    for (let i = sysEffects.length - 1; i >= 0; i--) {
-      if (sysEffects[i].tick(dt)) { sysEffects[i].dispose(); sysEffects.splice(i, 1); }
-    }
-  }
-
-  /* ---- lens flare / light scattering ------------------------------ */
-
-  const _flareNdc = new THREE.Vector3();
-  const _flareWhite = new THREE.Color(0xffffff);
-
-  /* Screen-space uniforms for the composer's flare pass: fades at the frame
-     edge, scales with the star's apparent size, and occludes behind planets
-     via one raycast per frame. Smoothing hides all the binary flips. */
-  function updateFlare(dt) {
-    if (!flarePass) return;
-    let target = 0;
-    const star = starNodes[0];
-    if (flarePass.enabled && star) {
-      star.getWorldPosition(_wp);
-      camera.getWorldDirection(_dir);
-      _wp2.copy(_wp).sub(camera.position);
-      const starDist = _wp2.length();
-      if (_dir.dot(_wp2) > 0 && starDist > 1e-3) {
-        _flareNdc.copy(_wp).project(camera);
-        const edgeFade =
-          (1 - THREE.MathUtils.smoothstep(Math.abs(_flareNdc.x), 0.75, 1.2)) *
-          (1 - THREE.MathUtils.smoothstep(Math.abs(_flareNdc.y), 0.75, 1.2));
-        if (edgeFade > 0) {
-          raycaster.set(camera.position, _wp2.normalize());
-          raycaster.far = starDist - star.geometry.parameters.radius;
-          const blocked = raycaster.intersectObjects(planetNodes, false).length > 0;
-          raycaster.far = Infinity;
-          if (!blocked) {
-            const apparent = THREE.MathUtils.clamp(
-              star.geometry.parameters.radius * 30 / starDist, 0.25, 1);
-            target = 0.42 * edgeFade * apparent;
-            flarePass.uniforms.uLightPos.value.set(
-              (_flareNdc.x + 1) / 2, (_flareNdc.y + 1) / 2);
-            flarePass.uniforms.uColor.value
-              .copy(star.material.color).lerp(_flareWhite, 0.35);
-            flarePass.uniforms.uAspect.value = window.innerWidth / window.innerHeight;
-          }
+        if (!hit) for (const planet of planetNodes) {
+          planet.getWorldPosition(_wp);
+          const pr = planet.geometry.parameters.radius * planet.scale.x + body.r;
+          if (p.distanceToSquared(_wp) < pr * pr) { absorbAsteroid(body, _wp.clone(), new THREE.Color(0xffcaa0)); hit = true; break; }
         }
       }
+      if (hit) continue;
+      if (p.lengthSq() > (layout.framing * 6) ** 2) removeAsteroid(body);
     }
-    flareStrength += (target - flareStrength) * (1 - Math.exp(-dt * 8));
-    flarePass.uniforms.uStrength.value = flareStrength;
+  }
+
+  function stepSysFx(dt) {
+    for (let i = sysFx.length - 1; i >= 0; i--) {
+      if (sysFx[i].tick(dt)) { sysFx[i].dispose(); sysFx.splice(i, 1); }
+    }
+  }
+
+  /* ---- eclipses: real shadow maps, gated by the toggle ------------- */
+
+  function applyEclipseShadows() {
+    renderer.shadowMap.enabled = eclipsesOn;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    if (primaryLight) {
+      primaryLight.castShadow = eclipsesOn;
+      if (eclipsesOn && layout) {
+        primaryLight.shadow.mapSize.set(1024, 1024);
+        primaryLight.shadow.camera.near = layout.starRadius * 1.2;
+        primaryLight.shadow.camera.far = layout.framing * 4;
+        primaryLight.shadow.bias = -0.002;
+      }
+    }
+    for (const p of planetNodes) { p.castShadow = eclipsesOn; p.receiveShadow = eclipsesOn; }
+    for (const m of moonNodes) { m.castShadow = eclipsesOn; m.receiveShadow = eclipsesOn; }
+  }
+
+  function eclipseSupport() {
+    if (moonNodes.length) return 'lunar';
+    if (planetNodes.length) return 'transit';
+    return null;
+  }
+
+  // Align a moon (lunar eclipse) or the planet itself (transit) onto the
+  // star->body line so a real shadow falls, and frame it. Enables shadows if off.
+  function triggerEclipse() {
+    const kind = eclipseSupport();
+    if (!kind) return null;
+    if (!eclipsesOn) { eclipsesOn = true; applyEclipseShadows(); }
+    let planet = planetNodes.find(p => moonNodes.some(m => m.parent === p)) || planetNodes[0];
+    if (!planet) return null;
+    planet.getWorldPosition(_wp);
+    const starAngle = Math.atan2(_wp.z, _wp.x);   // star sits at origin
+    if (kind === 'lunar') {
+      const moon = moonNodes.find(m => m.parent === planet) || moonNodes[0];
+      // Put the moon on the sunward side of its planet so it casts onto the world.
+      moon.userData.moon.angle = starAngle + Math.PI;
+      layoutOrbits(0);
+      focusNode(planet);
+      return { ok: true, label: 'lunar eclipse' };
+    }
+    // transit: leave the planet where it is and just frame the star line
+    focusNode(planet);
+    return { ok: true, label: 'transit' };
   }
 
   /* ---- camera ------------------------------------------------------ */
@@ -1103,20 +864,18 @@ export function createSystemView({
       if (!active) return;
       elapsed += dt;
       simScale = opts.simScale ?? simScale;
-      gravityMult = opts.gravityMult ?? gravityMult;
+      gravityMult = opts.gravity ?? gravityMult;
       collisionsOn = opts.collisions ?? collisionsOn;
-      const sdt = dt * simScale;             // 0 when paused → orbits and physics freeze
-      layoutOrbits(sdt);                     // move the worlds first, then chase them
-      if (sdt > 0) stepPhysics(sdt);
-      updateSysEffects(dt);                  // effects animate in real time
+      const sdt = dt * simScale;             // 0 when paused → orbits freeze
+      layoutOrbits(sdt);
+      if (residentsOn && sdt > 0) stepAsteroids(sdt);
+      stepSysFx(dt);                         // absorb flashes animate on real time
       // Environment breathes on real time too — a paused sim still twinkles.
       if (env) {
         env.sky.tick(dt, elapsed, renderer.getPixelRatio());
         env.dust.tick(dt, elapsed);
       }
       for (const aura of auras) aura.tick(elapsed);
-      updateFlare(dt);
-      laserCooldown = Math.max(0, laserCooldown - dt);
       // Camera runs on real dt so it never freezes with the sim clock.
       if (mode === 'free') updateFree(dt);
       else if (mode === 'cinematic') updateCinematic(dt);
@@ -1136,17 +895,17 @@ export function createSystemView({
     focusTarget(id) { return focusNode(nodeForTarget(id)); },
     frameSystem,
 
-    /* Gameplay — the As the Gods Will tools, against this scene */
-    spawnAsteroid,
-    spawnComet,
-    spawnBlackHole,
-    launchImpactor,
-    fireLaser,
-    makeDynamic,
-    clearSpawned,
-    get dynCount() { return dynBodies.length; },
-    get holeCount() { return holes.length; },
-    get effectCount() { return sysEffects.length; },
+    /* Sim tab: automatic events + gravity */
+    setResidentAsteroids(on) {
+      residentsOn = on;
+      if (on) spawnResidents(); else clearResidents();
+    },
+    setGravity(mult) { gravityMult = mult; },
+    setCollisions(on) { collisionsOn = on; },
+    setEclipses(on) { eclipsesOn = on; applyEclipseShadows(); },
+    triggerEclipse,
+    eclipseSupport,
+    get residentCount() { return asteroids.length; },
 
     /* Bodies / View tab plumbing */
     listTargets() {
@@ -1192,7 +951,7 @@ export function createSystemView({
     },
 
     destroy() {
-      clearGroup();                 // also resets the gameplay substrate + env
+      clearGroup();                 // disposes the entered system + its env
       scene.remove(dynGroup);
       rockGeo.dispose();
       rockMat.dispose();
@@ -1200,7 +959,7 @@ export function createSystemView({
       scene.remove(ambient);
       for (const tex of textures.values()) tex.dispose();
       textures.clear();
-      disposeFxTextures();          // module-level soft-point / spike / shock singletons
+      disposeFxTextures();          // module-level soft-point / spike singletons
       renderPass.scene = galaxyScene;
       renderPass.camera = galaxyCamera;
     },
