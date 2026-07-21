@@ -1259,3 +1259,44 @@ test('ramps each laser beam from the emitter before reaching its endpoint', () =
   assert.match(update, /beamEnd[\s\S]*?fx\.end\.copy/);
   assert.match(functionSource('updateCursorLaserAim'), /beamEnd\.copy/);
 });
+
+test('wraps the beam in re-striking lightning that bends with a fast cursor', () => {
+  const create = functionSource('createLaserEffect');
+  // every tube layer bends off one shader uniform — no per-frame geometry rebuild
+  assert.match(create, /uBend/);
+  assert.match(create, /CylinderGeometry\([^)]*,\s*(?:[2-9]\d|\d{3,}),\s*true\)/);
+  assert.match(create, /arcs\.push\(/);
+  assert.match(create, /nextStrike/);
+  assert.match(create, /muzzle/);
+  assert.match(create, /bend:\s*new THREE\.Vector3\(\)/);
+
+  const visuals = functionSource('updateLaserVisuals');
+  assert.match(visuals, /for\s*\(const bolt of fx\.arcs\)/);
+  assert.match(visuals, /visualTime >= bolt\.nextStrike/);
+  assert.match(visuals, /bolt\.seeds\[i\] = Math\.random\(\)/);
+  assert.match(visuals, /beamBendOffset\(fx/);
+  // stand-off is length-relative, so a thin beam does not swallow its own bolts
+  assert.match(visuals, /beamLen \* [\d.]+/);
+  // geometric spacing spreads the jitter along the body instead of bunching it
+  // at the impact point, where perspective crowds evenly spaced world points
+  assert.match(visuals, /ARC_NEAR \* Math\.pow\(1 \/ ARC_NEAR, q\)/);
+  assert.match(runtime, /const ARC_NEAR\s*=\s*0?\.\d+/);
+
+  const bend = functionSource('updateBeamBend');
+  assertContracts(bend, {
+    perpendicular: /dot\(velocity\)/,
+    clamped: /Math\.min\(len \* [\d.]+/,
+    localFrame: /applyQuaternion/,
+    noAxialStretch: /fx\.bend\.y = 0/,
+    layers: /flowMat\.uniforms\.uBend/,
+  });
+  assert.match(functionSource('updateCursorLaserAim'), /updateBeamBend\(heldLaserEffect/);
+  assert.doesNotMatch(functionSource('fireLaser'), /updateBeamBend/);
+
+  // growth eases out of the muzzle and lands while the beam is still alive
+  const update = functionSource('updateEffects');
+  assert.match(update, /grow = ramp \* ramp \* \(3 - 2 \* ramp\)/);
+  assert.match(update, /fx\.end\.copy\(fx\.start\)\.lerp\(fx\.beamEnd, grow\)/);
+  assert.match(update, /arrivalFlash/);
+  assert.match(create, /maxLife \* 0\.45/);
+});

@@ -395,6 +395,7 @@ let playbackDirection = 1;
 let selectedRecord = null;
 
 const _v1 = new THREE.Vector3(), _v2 = new THREE.Vector3(), _v3 = new THREE.Vector3();
+const _q1 = new THREE.Quaternion();
 const pointerPar = new THREE.Vector2();
 
 const STAR_LAYER_DEFS = [
@@ -1549,6 +1550,7 @@ const uiParams = {
 let laserCooldown = 0;
 const CURSOR_LASER_RANGE = 1600;
 const LASER_FIRE_RAMP = 1;
+const ARC_NEAR = 0.006; // first lightning vertex, as a fraction of beam length
 let cursorLaserActive = false;
 let cursorLaserPointerId = null;
 let cursorLaserControlsEnabled = null;
@@ -1926,6 +1928,35 @@ function placeLaser(fx) {
   fx.group.quaternion.setFromUnitVectors(_v2.set(0, 1, 0), _v1.normalize());
   fx.group.scale.set(1, len, 1);
   fx.glow.position.copy(fx.end);
+  fx.muzzle?.position.copy(fx.start);
+}
+
+// Sag profile shared by the beam shader and every CPU-written child, so the
+// bolts and sparks bow with the tube instead of sliding off it. Zero at both
+// ends — muzzle and tip stay anchored — fattest just past the middle.
+function beamBendOffset(fx, p, out) {
+  return out.copy(fx.bend).multiplyScalar(4 * p * (1 - p) * (0.55 + 0.45 * p));
+}
+
+// Whip: the beam bows against cursor motion, perpendicular to its own axis.
+// It relaxes on its own because the aim velocity is already spring-damped.
+function updateBeamBend(fx, velocity) {
+  _v1.copy(fx.end).sub(fx.start);
+  const len = _v1.length();
+  if (len < 0.001) {
+    fx.bend.set(0, 0, 0);
+  } else {
+    _v1.divideScalar(len);
+    _v2.copy(velocity).addScaledVector(_v1, -_v1.dot(velocity));
+    const swing = Math.min(1, _v2.length() / 300);
+    const cap = Math.min(len * 0.05, 3 + fx.width * 5);
+    if (_v2.lengthSq() > 0) _v2.setLength(-cap * swing); // lags behind the cursor
+    fx.bend.copy(_v2).applyQuaternion(_q1.copy(fx.group.quaternion).invert());
+    fx.bend.y = 0; // local Y is scaled by beam length — never displace along the axis
+  }
+  fx.outerMat.uniforms.uBend.value.copy(fx.bend);
+  fx.coreMat.uniforms.uBend.value.copy(fx.bend);
+  fx.flowMat.uniforms.uBend.value.copy(fx.bend);
 }
 
 function updateLaserVisuals(fx, dt) {
@@ -1941,25 +1972,61 @@ function updateLaserVisuals(fx, dt) {
     const j = i * 3;
     const p = (fx.particlePhases[i] + phase * 0.08) % 1;
     const seed = fx.particleSeeds[i];
-    particles[j] = Math.sin(visualTime * 9 + seed * 31) * spread * (0.35 + seed * 0.65);
+    beamBendOffset(fx, p, _v3);
+    particles[j] = Math.sin(visualTime * 9 + seed * 31) * spread * (0.35 + seed * 0.65) + _v3.x;
     particles[j + 1] = -0.5 + p;
-    particles[j + 2] = Math.cos(visualTime * 7 + seed * 23) * spread * (0.35 + seed * 0.65);
+    particles[j + 2] = Math.cos(visualTime * 7 + seed * 23) * spread * (0.35 + seed * 0.65) + _v3.z;
   }
   fx.particleMesh.geometry.attributes.position.needsUpdate = true;
   fx.particleMesh.material.size = fx.width * (fx.cursorAimed ? 2.3 + (fx.trail || 0) * 7 : 1.8);
   fx.particleMesh.material.opacity = (fx.cursorAimed ? 0.42 + (fx.trail || 0) * 0.7 : 0.3) * (fx.cursorAimed ? 1 : Math.max(0, 1 - fx.life / fx.maxLife));
 
-  const arc = fx.arc.geometry.attributes.position.array;
-  const arcSpread = fx.width * (1.1 + (fx.trail || 0) * 3);
-  for (let i = 0; i < fx.arcSegments; i++) {
-    const y = -0.5 + i / (fx.arcSegments - 1);
-    const j = i * 3;
-    arc[j] = Math.sin(visualTime * 18 + i * 2.7) * arcSpread;
-    arc[j + 1] = y;
-    arc[j + 2] = Math.cos(visualTime * 14 + i * 3.1) * arcSpread * 0.65;
+  // lightning: each bolt is a jagged helix that re-strikes on its own timer —
+  // the reseed is the flicker, so bolts snap to a new shape instead of sliding
+  const boltFade = fx.cursorAimed ? 1 : Math.max(0, 1 - fx.life / fx.maxLife);
+  const boltPower = THREE.MathUtils.clamp(uiParams.laserPower / 120, 0.7, 1.4);
+  // Stand-off has to clear the beam's own bloom, and that halo is not a
+  // constant on-screen width — it fattens toward the eye. Two terms: a fixed
+  // world radius, whose screen offset grows like the glare does as the beam
+  // nears the camera, plus a length-relative one that clears the thinner halo
+  // out by the target. A single constant-angular radius knots every bolt at
+  // the tip and buries the rest inside the glare.
+  const beamLen = Math.max(fx.group.scale.y, 0.001);
+  const boltGain = (1 + (fx.trail || 0) * 2) * boltPower;
+  const arcHug = Math.max(fx.width * 0.8, beamLen * 0.0001) * boltGain;
+  const arcFlare = beamLen * 0.012 * boltGain;
+  for (const bolt of fx.arcs) {
+    if (visualTime >= bolt.nextStrike) {
+      for (let i = 0; i < fx.arcSegments; i++) bolt.seeds[i] = Math.random();
+      bolt.phase = Math.random() * Math.PI * 2;
+      bolt.twist = (2 + Math.random() * 5) * (Math.random() < 0.5 ? -1 : 1);
+      bolt.flicker = 0.45 + Math.random() * 0.55;
+      bolt.nextStrike = visualTime + 0.04 + Math.random() * 0.07;
+    }
+    const arc = bolt.line.geometry.attributes.position.array;
+    for (let i = 0; i < fx.arcSegments; i++) {
+      // Geometric, not uniform, spacing: the beam recedes from the eye, so
+      // evenly spaced world points bunch up at the far end and leave the near
+      // body a straight line. Stepping p by a constant ratio spreads the jitter
+      // evenly along the beam *on screen*, which is where it has to read.
+      const q = i / (fx.arcSegments - 1);
+      const p = ARC_NEAR * Math.pow(1 / ARC_NEAR, q);
+      const j = i * 3;
+      // the taper runs in q, so the bolts pin to the beam at the two ends of
+      // the visible body rather than at the world endpoints; farFall shrinks
+      // them toward the target, which is what the eye expects from something
+      // that far off — a constant on-screen throw reads as a flat ribbon
+      const farFall = 1 - 0.55 * q;
+      const radius = (arcHug + arcFlare * p) * farFall * (0.45 + bolt.seeds[i]) * Math.pow(Math.sin(Math.PI * q), 0.25);
+      const angle = bolt.phase + bolt.twist * q + (bolt.seeds[i] - 0.5) * 1.8 + visualTime * 2;
+      beamBendOffset(fx, p, _v3);
+      arc[j] = Math.cos(angle) * radius + _v3.x;
+      arc[j + 1] = -0.5 + p;
+      arc[j + 2] = Math.sin(angle) * radius * 0.85 + _v3.z;
+    }
+    bolt.line.geometry.attributes.position.needsUpdate = true;
+    bolt.line.material.opacity = Math.min(1, (0.4 + bolt.flicker * 0.6 + (fx.trail || 0) * 0.6) * boltPower) * boltFade;
   }
-  fx.arc.geometry.attributes.position.needsUpdate = true;
-  fx.arc.material.opacity = (0.34 + (fx.trail || 0) * 0.8) * (fx.cursorAimed ? 1 : Math.max(0, 1 - fx.life / fx.maxLife));
 
   if (fx.trailMesh) {
     const trail = fx.trailMesh.geometry.attributes.position.array;
@@ -1967,9 +2034,10 @@ function updateLaserVisuals(fx, dt) {
     for (let i = 0; i < fx.trailPoints; i++) {
       const j = i * 3;
       const p = i / (fx.trailPoints - 1);
-      trail[j] = Math.sin(visualTime * 11 + i) * fx.width * (1 - p) * 0.8;
+      beamBendOffset(fx, 1 - p * stretch, _v3);
+      trail[j] = Math.sin(visualTime * 11 + i) * fx.width * (1 - p) * 0.8 + _v3.x;
       trail[j + 1] = 0.5 - p * stretch;
-      trail[j + 2] = Math.cos(visualTime * 9 + i * 1.4) * fx.width * (1 - p) * 0.5;
+      trail[j + 2] = Math.cos(visualTime * 9 + i * 1.4) * fx.width * (1 - p) * 0.5 + _v3.z;
     }
     fx.trailMesh.geometry.attributes.position.needsUpdate = true;
     fx.trailMesh.material.opacity = (0.18 + (fx.trail || 0) * 0.7) * (fx.cursorAimed ? 1 : Math.max(0, 1 - fx.life / fx.maxLife));
@@ -1980,17 +2048,18 @@ function disposeLaserEffect(fx) {
   if (!fx) return;
   galaxyGroup?.remove(fx.group);
   galaxyGroup?.remove(fx.glow);
+  if (fx.muzzle) galaxyGroup?.remove(fx.muzzle);
   for (const mesh of fx.group.children) mesh.geometry.dispose();
   fx.outerMat.dispose();
   fx.coreMat.dispose();
   fx.flowMat?.dispose();
   fx.particleMesh?.material.dispose();
   fx.particleMesh?.geometry.dispose();
-  fx.arc?.material.dispose();
-  fx.arc?.geometry.dispose();
+  for (const bolt of fx.arcs || []) bolt.line.material.dispose();
   fx.trailMesh?.material.dispose();
   fx.trailMesh?.geometry.dispose();
   fx.glow.material.dispose(); // its map is the shared point-sprite texture — keep it
+  fx.muzzle?.material.dispose();
   effects = effects.filter(effect => effect !== fx);
 }
 
@@ -2002,17 +2071,25 @@ function createLaserEffect(target, start, end, maxLife, cursorAimed = false) {
   const sparkColor = color.clone().lerp(new THREE.Color(0xffffff), 0.38);
   const spriteTexture = createPointSpriteTexture();
   const group = new THREE.Group();
-  const outerMat = new THREE.MeshBasicMaterial({ color: edgeColor, transparent: true, opacity: 0.24, blending: THREE.AdditiveBlending, depthWrite: false });
-  group.add(new THREE.Mesh(new THREE.CylinderGeometry(w, w, 1, 10, 1, true), outerMat));
-  const coreMat = new THREE.MeshBasicMaterial({ color: coreColor, transparent: true, opacity: 0.94, blending: THREE.AdditiveBlending, depthWrite: false });
-  group.add(new THREE.Mesh(new THREE.CylinderGeometry(w * 0.3, w * 0.3, 1, 8, 1, true), coreMat));
-  const flowMat = new THREE.ShaderMaterial({
-    uniforms: { uColor: { value: color.clone() }, uTime: { value: 0 }, uVelocity: { value: 0 } },
-    vertexShader: 'varying float vY; void main(){ vY=position.y; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0); }',
-    fragmentShader: 'uniform vec3 uColor; uniform float uTime; uniform float uVelocity; varying float vY; void main(){ float flow=0.5+0.5*sin((vY+uTime*(2.5+uVelocity))*22.0); vec3 c=mix(uColor,vec3(1.0),0.5+flow*0.35); gl_FragColor=vec4(c,0.42+flow*0.22); }',
+  // Every tube layer bends in the vertex shader off a shared uBend, so a fast
+  // cursor whip curves the beam without rebuilding geometry each frame.
+  const beamLayer = (layerColor, opacity, flow) => new THREE.ShaderMaterial({
+    uniforms: {
+      uColor: { value: layerColor.clone() }, uOpacity: { value: opacity },
+      uTime: { value: 0 }, uVelocity: { value: 0 }, uBend: { value: new THREE.Vector3() },
+    },
+    vertexShader: 'uniform vec3 uBend; varying float vY; void main(){ vY=position.y; float b=position.y+0.5; vec3 bent=position+uBend*(4.0*b*(1.0-b)*(0.55+0.45*b)); gl_Position=projectionMatrix*modelViewMatrix*vec4(bent,1.0); }',
+    fragmentShader: flow
+      ? 'uniform vec3 uColor; uniform float uOpacity; uniform float uTime; uniform float uVelocity; varying float vY; void main(){ float flow=0.5+0.5*sin((vY+uTime*(2.5+uVelocity))*22.0); vec3 c=mix(uColor,vec3(1.0),0.5+flow*0.35); gl_FragColor=vec4(c,(0.42+flow*0.22)*uOpacity); }'
+      : 'uniform vec3 uColor; uniform float uOpacity; varying float vY; void main(){ gl_FragColor=vec4(uColor,uOpacity); }',
     transparent: true, blending: THREE.AdditiveBlending, depthWrite: false,
   });
-  group.add(new THREE.Mesh(new THREE.CylinderGeometry(w * 0.58, w * 0.58, 1, 8, 1, true), flowMat));
+  const outerMat = beamLayer(edgeColor, 0.24, false);
+  group.add(new THREE.Mesh(new THREE.CylinderGeometry(w, w, 1, 10, 24, true), outerMat));
+  const coreMat = beamLayer(coreColor, 0.94, false);
+  group.add(new THREE.Mesh(new THREE.CylinderGeometry(w * 0.3, w * 0.3, 1, 8, 24, true), coreMat));
+  const flowMat = beamLayer(color, 1, true);
+  group.add(new THREE.Mesh(new THREE.CylinderGeometry(w * 0.58, w * 0.58, 1, 8, 24, true), flowMat));
 
   const particleCount = cursorAimed ? 18 : 10;
   const particlePhases = new Float32Array(particleCount);
@@ -2029,13 +2106,18 @@ function createLaserEffect(target, start, end, maxLife, cursorAimed = false) {
   }));
   group.add(particleMesh);
 
-  const arcSegments = 8;
-  const arcGeo = new THREE.BufferGeometry();
-  arcGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(arcSegments * 3), 3));
-  const arc = new THREE.Line(arcGeo, new THREE.LineBasicMaterial({
-    color: sparkColor, transparent: true, opacity: 0.35, blending: THREE.AdditiveBlending, depthWrite: false,
-  }));
-  group.add(arc);
+  const arcSegments = 28;
+  const arcs = [];
+  const boltColor = color.clone().lerp(new THREE.Color(0xffffff), 0.62); // reads against the beam's own glare
+  for (let b = 0; b < (cursorAimed ? 4 : 3); b++) {
+    const arcGeo = new THREE.BufferGeometry();
+    arcGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(arcSegments * 3), 3));
+    const arc = new THREE.Line(arcGeo, new THREE.LineBasicMaterial({
+      color: boltColor, transparent: true, opacity: 0.35, blending: THREE.AdditiveBlending, depthWrite: false,
+    }));
+    group.add(arc);
+    arcs.push({ line: arc, seeds: new Float32Array(arcSegments), phase: Math.random() * Math.PI * 2, twist: 3, flicker: 0.6, nextStrike: 0 });
+  }
 
   const trailPoints = cursorAimed ? 5 : 0;
   let trailMesh = null;
@@ -2050,10 +2132,20 @@ function createLaserEffect(target, start, end, maxLife, cursorAimed = false) {
   group.frustumCulled = false;
   const glowOpacity = cursorAimed ? 0.12 : 0.35;
   const glow = new THREE.Sprite(new THREE.SpriteMaterial({ map: spriteTexture, color: edgeColor, transparent: true, opacity: glowOpacity, blending: THREE.AdditiveBlending, depthWrite: false }));
-  glow.scale.setScalar(cursorAimed ? 0.8 + w * 1.5 : 2 + w * 3);
+  const glowScale = cursorAimed ? 0.8 + w * 1.5 : 2 + w * 3;
+  glow.scale.setScalar(glowScale);
+  // muzzle flash — the beam is heavily foreshortened head-on, so the emitter
+  // firing is most of what sells the growth before the tip lands
+  const muzzleScale = 1.2 + w * 3;
+  const muzzle = new THREE.Sprite(new THREE.SpriteMaterial({ map: spriteTexture, color: coreColor, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false }));
+  muzzle.scale.setScalar(muzzleScale);
+  muzzle.position.copy(start);
   galaxyGroup.add(group);
   galaxyGroup.add(glow);
-  const fx = { kind: 'laser', group, outerMat, coreMat, flowMat, particleMesh, particlePhases, particleSeeds, arc, arcSegments, trailMesh, trailPoints, glow, glowOpacity, width: w, target, start: start.clone(), end: start.clone(), beamEnd: end.clone(), beamProgress: 0, beamDuration: cursorAimed ? LASER_FIRE_RAMP : Math.min(LASER_FIRE_RAMP, maxLife), life: 0, maxLife, cursorAimed, trail: 0, velocity: new THREE.Vector3() };
+  galaxyGroup.add(muzzle);
+  // the tap beam grows over the first slice of its life so the strike is
+  // visible while it is still connected, instead of landing as it dies
+  const fx = { kind: 'laser', group, outerMat, coreMat, flowMat, particleMesh, particlePhases, particleSeeds, arcs, arcSegments, trailMesh, trailPoints, glow, glowOpacity, glowScale, muzzle, muzzleScale, width: w, target, start: start.clone(), end: start.clone(), beamEnd: end.clone(), beamProgress: 0, grow: 0, arrivalFlash: 0, arrived: false, bend: new THREE.Vector3(), beamDuration: cursorAimed ? LASER_FIRE_RAMP : Math.min(LASER_FIRE_RAMP, maxLife * 0.45), life: 0, maxLife, cursorAimed, trail: 0, velocity: new THREE.Vector3() };
   effects.push(fx);
   placeLaser(fx);
   return fx;
@@ -2131,6 +2223,7 @@ function updateCursorLaserAim(dt = 1 / 60) {
   const trail = Math.min(0.35, cursorLaserMotion.velocity.length() * 0.01);
   heldLaserEffect.trail = trail;
   heldLaserEffect.velocity.copy(cursorLaserMotion.velocity);
+  updateBeamBend(heldLaserEffect, cursorLaserMotion.velocity);
   heldLaserEffect.group.scale.x = 1 + trail;
   heldLaserEffect.group.scale.z = 1 + trail * 0.65;
 }
@@ -4788,7 +4881,11 @@ function updateEffects(dt, dDays) {
       }
       fx.beamProgress = Math.min(1, fx.beamProgress + dt / fx.beamDuration);
       const ramp = fx.beamProgress;
-      fx.end.copy(fx.start).lerp(fx.beamEnd, ramp);
+      const grow = ramp * ramp * (3 - 2 * ramp); // smoothstep: the tip eases out of the muzzle
+      fx.grow = grow;
+      if (ramp >= 1 && !fx.arrived) { fx.arrived = true; fx.arrivalFlash = 1; }
+      fx.arrivalFlash = Math.max(0, fx.arrivalFlash - dt / 0.15);
+      fx.end.copy(fx.start).lerp(fx.beamEnd, grow);
       placeLaser(fx);
       if (fx.cursorAimed) {
         const trail = fx.trail || 0;
@@ -4796,10 +4893,16 @@ function updateEffects(dt, dDays) {
         fx.group.scale.z = 1 + trail * 0.65;
       }
       const fade = fx.cursorAimed ? 1 : Math.max(0, 1 - t);
-      fx.outerMat.opacity = 0.24 * fade;
-      fx.coreMat.opacity = 0.94 * fade;
+      const charge = 0.35 + 0.65 * grow; // brightens as it extends instead of popping on
+      fx.outerMat.uniforms.uOpacity.value = 0.24 * fade * charge;
+      fx.coreMat.uniforms.uOpacity.value = 0.94 * fade * charge;
+      fx.flowMat.uniforms.uOpacity.value = fade * charge;
       updateLaserVisuals(fx, dt);
-      fx.glow.material.opacity = fx.glowOpacity * fade;
+      fx.glow.scale.setScalar(fx.glowScale * (1 + (1 - grow) * 1.6 + fx.arrivalFlash * 1.8));
+      fx.glow.material.opacity = fx.glowOpacity * fade * (0.5 + 0.5 * grow + fx.arrivalFlash * 0.9);
+      const muzzleFlash = Math.max(0, 1 - fx.life / 0.22);
+      fx.muzzle.scale.setScalar(fx.muzzleScale * (1 + muzzleFlash * 1.6));
+      fx.muzzle.material.opacity = (0.16 + muzzleFlash * 0.7 + 0.06 * Math.sin(fx.visualTime * 28)) * fade;
       if (!fx.cursorAimed && t >= 1) disposeLaserEffect(fx);
     }
   }
