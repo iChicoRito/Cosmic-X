@@ -229,6 +229,16 @@ export function createSystem(opts, rng = Math.random) {
   return system;
 }
 
+/* URL slug for a system name. Names like "Andromeda A-1" are unique within a
+   galaxy, so the slug is unique per save. Used by the /#/creator/{slug} route. */
+export function systemSlug(name) {
+  return String(name).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+}
+
+export function findSystemBySlug(systems, slug) {
+  return systems.find(s => systemSlug(s.name) === slug) || null;
+}
+
 export function planetColor(planet) {
   switch (planet.class) {
     case 'gas-giant': return 0xd8b28a;

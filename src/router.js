@@ -10,6 +10,16 @@ export function resolveRoute(hash = '') {
   const raw = String(hash);
   const legacy = raw === '#modes';
   const path = legacy ? '/modes' : (raw.replace(/^#/, '') || '/');
+
+  // Stellar sub-route: each created system gets its own page /#/creator/{slug}.
+  if (!ROUTES.has(path)) {
+    const stellar = /^\/creator\/([a-z0-9-]+)$/.exec(path.toLowerCase());
+    if (stellar) {
+      const canonical = `/creator/${stellar[1]}`;
+      return { path: canonical, page: 'creator', view: 'system', system: stellar[1], replace: path !== canonical };
+    }
+  }
+
   const canonical = ROUTES.has(path) ? path : '/';
   const route = ROUTES.get(canonical);
   return {

@@ -43,6 +43,26 @@ test('resolves canonical, legacy, and unknown hash routes', () => {
   });
 });
 
+test('resolves the stellar sub-route to a system view with its slug', () => {
+  assert.deepEqual(resolveRoute('#/creator/kepler-a-1'), {
+    path: '/creator/kepler-a-1',
+    page: 'creator',
+    view: 'system',
+    system: 'kepler-a-1',
+    replace: false,
+  });
+  // uppercase / mixed case normalizes and asks history to rewrite
+  assert.deepEqual(resolveRoute('#/creator/Kepler-A-1'), {
+    path: '/creator/kepler-a-1',
+    page: 'creator',
+    view: 'system',
+    system: 'kepler-a-1',
+    replace: true,
+  });
+  // an empty slug is not a stellar route — it collapses to root like any junk hash
+  assert.equal(resolveRoute('#/creator/').path, '/');
+});
+
 test('changes Solar views without remounting the Solar page', async () => {
   const calls = [];
   const manager = createRouteManager({

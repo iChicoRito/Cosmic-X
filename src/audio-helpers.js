@@ -4,7 +4,7 @@
 export const clamp01 = n => Math.max(0, Math.min(1, Number.isFinite(n) ? n : 0));
 
 export function sceneForPath(path) {
-  if (path === '/solar-system' || path === '/creator') return 'solar';
+  if (path === '/solar-system' || path === '/creator' || path.startsWith('/creator/')) return 'solar';
   if (path === '/big-bang') return 'big-bang';
   return 'lobby'; // '/', '/modes', and any fallback
 }

@@ -8,6 +8,7 @@ test('maps route paths to music scenes', () => {
   assert.equal(sceneForPath('/modes'), 'lobby');
   assert.equal(sceneForPath('/solar-system'), 'solar');
   assert.equal(sceneForPath('/creator'), 'solar');
+  assert.equal(sceneForPath('/creator/kepler-a-1'), 'solar');
   assert.equal(sceneForPath('/big-bang'), 'big-bang');
   assert.equal(sceneForPath('/whatever'), 'lobby');
 });

@@ -405,10 +405,6 @@ canvas.cr-canvas { position: fixed; inset: 0; display: block; }
 /* Static readout from the galaxy dossier — no fly-to, so no clickable affordance. */
 .cr-moon-row.static { cursor: default; }
 .cr-moon-row.static:hover { background: var(--glass-soft); }
-
-/* Spawn / Impact / Laser god-tools — square like the rest, only sliders round. */
-.cr-spawn-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 8px; }
-.cr-btn kbd { font: 600 10px/1 var(--font); border: 1px solid currentColor; padding: 1px 4px; margin-left: 6px; opacity: .7; }
 .cr-insp-section { margin: 10px 0 0; font: 600 11px/1 var(--font-display); letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
 
 .cr-slots { list-style: none; margin: 10px 0; padding: 0; display: grid; gap: 6px; }
