@@ -351,6 +351,9 @@ export function solarTemplate() {
       <div class="row"><span>Destructive</span>
         <label class="switch"><input id="laserDestructive" type="checkbox" aria-label="Destructive beam" checked><span class="track"></span><span class="thumb"></span></label>
       </div>
+      <div class="row"><span>Cursor Laser Mode</span>
+        <label class="switch"><input id="cursorLaserMode" type="checkbox" aria-label="Cursor Laser Mode"><span class="track"></span><span class="thumb"></span></label>
+      </div>
       <button id="fireLaser" class="btn danger">Fire laser (F)</button>
       <div class="note">A light-speed beam from your viewpoint to the target — it hits instantly. At full power a destructive beam shatters a world; non-destructive mode only scorches the surface.</div>
     </div>

@@ -1144,9 +1144,81 @@ test('wires the customizable laser tab into the control panel', () => {
     titleGuard: /titleMode/,
     destructive: /destroyPlanet\(/,
     scorch: /addCrater\(/,
-    effect: /kind:\s*'laser'/,
+    effect: /createLaserEffect\(/,
   });
   assert.match(functionSource('refreshImpactTargets'), /laserTarget/);
   assert.match(functionSource('updateEffects'), /'laser'/);
   assert.ok(/KeyF/.test(runtime), 'F key fires the laser');
+});
+
+test('adds cursor-tracked laser mode without changing single-shot mode', () => {
+  const page = section('<div class="tab-page" data-page="laser">', '<div class="tab-page" data-page="cam">');
+  const holdToggle = startTagById('cursorLaserMode', page);
+  assertAttributes(holdToggle, { type: /^checkbox$/, 'aria-label': /cursor laser mode/i });
+  assert.doesNotMatch(holdToggle, /\schecked(?:\s|>)/i, 'cursor mode defaults off');
+  assert.match(runtime, /cursorLaserMode:\s*false/);
+
+  const fire = functionSource('fireLaser');
+  assertContracts(fire, {
+    zeroArg: /function fireLaser\(\)/,
+    cooldownGuard: /laserCooldown > 0/,
+    titleGuard: /titleMode/,
+    destructive: /destroyPlanet\(/,
+    scorch: /addCrater\(/,
+    effect: /createLaserEffect\(/,
+  });
+  assertContracts(functionSource('stopCursorLaser'), {
+    releaseState: /cursorLaserActive\s*=\s*false/,
+    immediateCleanup: /disposeLaserEffect\(heldLaserEffect\)/,
+    clearReference: /heldLaserEffect\s*=\s*null/,
+    normalCursor: /style\.cursor\s*=\s*['"]['"]/
+  });
+  assertContracts(functionSource('disableCursorLaserMode'), {
+    stop: /stopCursorLaser\(\)/,
+    unchecked: /(?:toggle|ui\(\s*['"]cursorLaserMode['"]\s*\))\.checked\s*=\s*false/,
+    disarmed: /uiParams\.cursorLaserMode\s*=\s*false/,
+  });
+  assertContracts(functionSource('updateCursorLaserAim'), {
+    raycast: /raycaster\.intersectObjects\(pickTargets/,
+    point: /hit\.point/,
+    range: /CURSOR_LASER_RANGE/,
+    pose: /placeLaser\(heldLaserEffect\)/,
+  });
+  assertContracts(functionSource('isCursorLaserTarget'), {
+    targetFilter: /isMoon|isBody/,
+    exclusion: /isSun|isBH|isConstellation|isGalaxy/,
+  });
+  assert.match(runtime, /const CURSOR_LASER_RANGE\s*=\s*1600/);
+  assert.match(runtime, /cursorLaserMotion[\s\S]*?velocity/);
+  assertContracts(functionSource('resetCursorLaserMotion'), {
+    resetPoint: /point\.set\(0,\s*0,\s*0\)/,
+    resetVelocity: /velocity\.set\(0,\s*0,\s*0\)/,
+  });
+  assertContracts(functionSource('updateCursorLaserAim'), {
+    delta: /dt\s*=\s*1\s*\/\s*60/,
+    spring: /cursorLaserMotion\.velocity[\s\S]*?Math\.exp/,
+    visualPoint: /cursorLaserMotion\.point/,
+    trail: /cursorLaserMotion\.velocity\.length\(\)/,
+  });
+  assert.match(functionSource('update'), /cursorLaserActive[\s\S]*?updateCursorLaserAim\([^)]*\)/);
+  assert.match(functionSource('update'), /cursorLaserActive[\s\S]*?laserCooldown\s*<=\s*0[\s\S]*?applyCursorLaserDamage/);
+
+  const setup = functionSource('setupUI');
+  assert.match(setup, /bindSwitch\(\s*['"]cursorLaserMode['"]/);
+  assert.match(setup, /fireButton\.addEventListener\(\s*['"]click['"][\s\S]*?fireLaser\(\)/);
+  assert.doesNotMatch(setup, /fireButton\.addEventListener\(\s*['"]pointerdown/);
+  assert.match(setup, /event\.code\s*===\s*['"]KeyF['"][\s\S]*?fireLaser\(\)/);
+  assert.doesNotMatch(setup, /startCursorLaser\(\)/);
+  assert.match(setup, /tab\.dataset\.tab[\s\S]*?disableCursorLaserMode\(\)/);
+  assert.match(setup, /collapseBtn[\s\S]*?disableCursorLaserMode\(\)/);
+  assert.match(functionSource('setHudVisible'), /hidden[\s\S]*?disableCursorLaserMode\(\)/);
+  const picking = functionSource('setupPicking');
+  assert.match(picking, /scope\.listen\(renderer\.domElement,\s*['"]pointerdown['"][\s\S]*?capture\s*:\s*true/);
+  assert.match(picking, /setPointerCapture\(/);
+  assert.match(picking, /stopImmediatePropagation\(\)/);
+  for (const event of ['pointerup', 'pointercancel', 'lostpointercapture']) assert.match(picking, new RegExp(event));
+  assert.match(functionSource('buildGalaxy'), /disableCursorLaserMode\(\)/);
+  assert.match(functionSource('pause'), /stopCursorLaser\(\)/);
+  assert.match(functionSource('destroy'), /disableCursorLaserMode\(\)/);
+  assert.match(functionSource('stopCursorLaser'), /resetCursorLaserMotion\(\)/);
 });

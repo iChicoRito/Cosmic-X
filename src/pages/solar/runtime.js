@@ -1543,9 +1543,22 @@ const uiParams = {
   bhMass: 800,
   impSpeed: 2.5, impAngle: 0, impMass: 10, impSize: 1.5, lockOn: false,
   cometA: 140, cometE: 0.85, cometColor: 'blue',
-  laserWidth: 0.4, laserPower: 120, laserDuration: 0.8, laserDestructive: true, laserColor: '#ff4a3a',
+  laserWidth: 0.4, laserPower: 120, laserDuration: 0.8, laserDestructive: true,
+  laserColor: '#ff4a3a', cursorLaserMode: false,
 };
 let laserCooldown = 0;
+const CURSOR_LASER_RANGE = 1600;
+let cursorLaserActive = false;
+let cursorLaserPointerId = null;
+let cursorLaserControlsEnabled = null;
+const cursorLaserNdc = new THREE.Vector2();
+const cursorLaserAim = { record: null, point: new THREE.Vector3() };
+const cursorLaserMotion = {
+  point: new THREE.Vector3(),
+  velocity: new THREE.Vector3(),
+  initialized: false,
+};
+let heldLaserEffect = null;
 
 function launchProjectile() {
   const rec = planets[+ui('impactTarget').value];
@@ -1912,10 +1925,140 @@ function placeLaser(fx) {
   fx.glow.position.copy(fx.end);
 }
 
+function disposeLaserEffect(fx) {
+  if (!fx) return;
+  galaxyGroup?.remove(fx.group);
+  galaxyGroup?.remove(fx.glow);
+  for (const mesh of fx.group.children) mesh.geometry.dispose();
+  fx.outerMat.dispose();
+  fx.coreMat.dispose();
+  fx.glow.material.dispose(); // its map is the shared point-sprite texture — keep it
+  effects = effects.filter(effect => effect !== fx);
+}
+
+function createLaserEffect(target, start, end, maxLife, cursorAimed = false) {
+  const w = uiParams.laserWidth;
+  const color = new THREE.Color(uiParams.laserColor);
+  const group = new THREE.Group();
+  const outerMat = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.45, blending: THREE.AdditiveBlending, depthWrite: false });
+  group.add(new THREE.Mesh(new THREE.CylinderGeometry(w, w, 1, 10, 1, true), outerMat));
+  const coreMat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.9, blending: THREE.AdditiveBlending, depthWrite: false });
+  group.add(new THREE.Mesh(new THREE.CylinderGeometry(w * 0.35, w * 0.35, 1, 8, 1, true), coreMat));
+  group.frustumCulled = false;
+  const glowOpacity = cursorAimed ? 0.12 : 0.9;
+  const glow = new THREE.Sprite(new THREE.SpriteMaterial({ map: createPointSpriteTexture(), color, transparent: true, opacity: glowOpacity, blending: THREE.AdditiveBlending, depthWrite: false }));
+  glow.scale.setScalar(cursorAimed ? 0.8 + w * 1.5 : 3 + w * 6);
+  galaxyGroup.add(group);
+  galaxyGroup.add(glow);
+  const fx = { kind: 'laser', group, outerMat, coreMat, glow, glowOpacity, target, start: start.clone(), end: end.clone(), life: 0, maxLife, cursorAimed };
+  effects.push(fx);
+  placeLaser(fx);
+  return fx;
+}
+
+function stopCursorLaser() {
+  cursorLaserActive = false;
+  if (cursorLaserPointerId !== null) {
+    try {
+      if (renderer.domElement.hasPointerCapture?.(cursorLaserPointerId)) {
+        renderer.domElement.releasePointerCapture(cursorLaserPointerId);
+      }
+    } catch { /* pointer capture may already be lost */ }
+    cursorLaserPointerId = null;
+  }
+  cameraState.dragging = false;
+  if (cursorLaserControlsEnabled !== null) controls.enabled = cursorLaserControlsEnabled;
+  cursorLaserControlsEnabled = null;
+  renderer.domElement.style.cursor = '';
+  cursorLaserAim.record = null;
+  if (heldLaserEffect) {
+    disposeLaserEffect(heldLaserEffect);
+    heldLaserEffect = null;
+  }
+  resetCursorLaserMotion();
+}
+
+function resetCursorLaserMotion() {
+  cursorLaserMotion.point.set(0, 0, 0);
+  cursorLaserMotion.velocity.set(0, 0, 0);
+  cursorLaserMotion.initialized = false;
+}
+
+function disableCursorLaserMode() {
+  uiParams.cursorLaserMode = false;
+  const toggle = ui('cursorLaserMode');
+  if (toggle) toggle.checked = false;
+  stopCursorLaser();
+}
+
+function isCursorLaserTarget(record) {
+  if (!record || !record.visible || record.destroyed || record.alive === false) return false;
+  if (record.isSun || record.isBH || record.isConstellation || record.isGalaxy) return false;
+  return record.isMoon || planets.includes(record) || (record.isBody && dynBodies.includes(record));
+}
+
+function updateCursorLaserAim(dt = 1 / 60) {
+  if (!cursorLaserActive) return;
+  raycaster.setFromCamera(cursorLaserNdc, camera);
+  const hit = raycaster.intersectObjects(pickTargets, false)
+    .find(candidate => isCursorLaserTarget(byMesh.get(candidate.object)));
+  cursorLaserAim.record = hit ? byMesh.get(hit.object) : null;
+  if (hit) cursorLaserAim.point.copy(hit.point);
+  else cursorLaserAim.point.copy(raycaster.ray.origin).addScaledVector(raycaster.ray.direction, CURSOR_LASER_RANGE);
+  const start = camera.position.clone()
+    .addScaledVector(_v1.setFromMatrixColumn(camera.matrixWorld, 0), 1.5)
+    .addScaledVector(_v2.setFromMatrixColumn(camera.matrixWorld, 1), -1.2);
+  const step = Math.min(0.1, Math.max(0, Number(dt) || 1 / 60));
+  if (!cursorLaserMotion.initialized) {
+    cursorLaserMotion.point.copy(cursorLaserAim.point);
+    cursorLaserMotion.velocity.set(0, 0, 0);
+    cursorLaserMotion.initialized = true;
+  } else {
+    cursorLaserMotion.velocity.addScaledVector(
+      _v3.copy(cursorLaserAim.point).sub(cursorLaserMotion.point), step * 35,
+    );
+    cursorLaserMotion.velocity.multiplyScalar(Math.exp(-step * 10));
+    cursorLaserMotion.point.addScaledVector(cursorLaserMotion.velocity, step);
+  }
+  if (!heldLaserEffect) heldLaserEffect = createLaserEffect(null, start, cursorLaserMotion.point, Infinity, true);
+  heldLaserEffect.start.copy(start);
+  heldLaserEffect.end.copy(cursorLaserMotion.point);
+  heldLaserEffect.target = cursorLaserAim.record;
+  placeLaser(heldLaserEffect);
+  const trail = Math.min(0.35, cursorLaserMotion.velocity.length() * 0.01);
+  heldLaserEffect.trail = trail;
+  heldLaserEffect.group.scale.x = 1 + trail;
+  heldLaserEffect.group.scale.z = 1 + trail * 0.65;
+}
+
+function applyCursorLaserDamage(record, point) {
+  if (!isCursorLaserTarget(record)) return;
+  const energy = uiParams.laserPower;
+  spawnExplosion(point, Math.min(3, 0.6 + energy * 0.02));
+  if (record.isMoon) {
+    if (uiParams.laserDestructive && energy > Math.max(4, record.def.radiusE * 160)) destroyMoon(record, point);
+    else addCrater(record, point, Math.min(record.geoR * 0.6, 0.1 + energy * 0.003));
+    laserCooldown = 0.25;
+    return;
+  }
+  if (record.isBody) {
+    if (uiParams.laserDestructive) removeBody(record);
+    laserCooldown = 0.25;
+    return;
+  }
+  const frac = energy / (record.def.radiusE * 55);
+  if (uiParams.laserDestructive && frac > 1) destroyPlanet(record, point);
+  else if (uiParams.laserDestructive) {
+    addCrater(record, point, Math.min(record.geoR * 0.7, 0.25 + energy * 0.004));
+    spawnDebris(point, record, Math.min(1, frac));
+    if (record.mode === 'rail') record.def.e = Math.min(0.4, record.def.e + energy * 0.00008);
+  } else addCrater(record, point, Math.min(record.geoR * 0.4, 0.15 + energy * 0.002));
+  laserCooldown = 0.25;
+}
+
 // Instant light-speed beam from the viewpoint to the chosen planet. Damage
-// lands the same frame; the beam itself is a fading effect that tracks the
-// target while it lives. Timeline rebuilds do not replay laser damage (the
-// laser writes nothing to the interaction log).
+// lands the same frame; single shots fade, while cursor mode reuses one effect
+// until release. Timeline rebuilds do not replay laser damage.
 function fireLaser() {
   if (titleMode || laserCooldown > 0) return;
   const rec = planets[+ui('laserTarget').value];
@@ -1929,33 +2072,7 @@ function fireLaser() {
   const dir = _v3.copy(rec.anchor.position).sub(start).normalize();
   const hit = rec.anchor.position.clone().addScaledVector(dir, -rec.geoR);
 
-  const w = uiParams.laserWidth;
-  const color = new THREE.Color(uiParams.laserColor);
-  const group = new THREE.Group();
-  const outerMat = new THREE.MeshBasicMaterial({
-    color, transparent: true, opacity: 0.45,
-    blending: THREE.AdditiveBlending, depthWrite: false,
-  });
-  group.add(new THREE.Mesh(new THREE.CylinderGeometry(w, w, 1, 10, 1, true), outerMat));
-  const coreMat = new THREE.MeshBasicMaterial({
-    color: 0xffffff, transparent: true, opacity: 0.9,
-    blending: THREE.AdditiveBlending, depthWrite: false,
-  });
-  group.add(new THREE.Mesh(new THREE.CylinderGeometry(w * 0.35, w * 0.35, 1, 8, 1, true), coreMat));
-  group.frustumCulled = false; // stretched unit cylinder: stale bounds (shootstar precedent)
-  const glow = new THREE.Sprite(new THREE.SpriteMaterial({
-    map: createPointSpriteTexture(), color,
-    transparent: true, opacity: 0.9, blending: THREE.AdditiveBlending, depthWrite: false,
-  }));
-  glow.scale.setScalar(3 + w * 6);
-  galaxyGroup.add(group);
-  galaxyGroup.add(glow);
-  const fx = {
-    kind: 'laser', group, outerMat, coreMat, glow, target: rec,
-    start, end: hit.clone(), life: 0, maxLife: uiParams.laserDuration,
-  };
-  placeLaser(fx);
-  effects.push(fx);
+  const fx = createLaserEffect(rec, start, hit, uiParams.laserDuration);
 
   // damage mirrors handleImpact's ladder with energy taken straight from Power
   const energy = uiParams.laserPower;
@@ -1971,6 +2088,7 @@ function fireLaser() {
     // non-destructive beam only scorches — no debris, no orbit change
     addCrater(rec, hit, Math.min(rec.geoR * 0.4, 0.15 + energy * 0.002));
   }
+  return fx;
 }
 
 function removeBody(body) {
@@ -2115,6 +2233,7 @@ function disposeGroup(root) {
 }
 
 function buildGalaxy(index) {
+  disableCursorLaserMode();
   const stableSelectionKey = index === currentGalaxy ? selectionKeyFor(selectedRecord) : null;
   closeInfoPanel();
   if (galaxyGroup) disposeGroup(galaxyGroup);
@@ -2538,6 +2657,49 @@ function updateCameraMode(dt) {
 
 function setupPicking() {
   let downX = 0, downY = 0;
+  const setCursorLaserPointer = (event) => {
+    const rect = renderer.domElement.getBoundingClientRect();
+    cursorLaserNdc.set(
+      ((event.clientX - rect.left) / Math.max(1, rect.width)) * 2 - 1,
+      -((event.clientY - rect.top) / Math.max(1, rect.height)) * 2 + 1,
+    );
+  };
+  const startCursorLaser = (event) => {
+    if (!uiParams.cursorLaserMode || titleMode || cursorLaserActive || event.button !== 0
+        || !document.querySelector('.tab-page[data-page="laser"]')?.classList.contains('active')) return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    cursorLaserActive = true;
+    cursorLaserPointerId = event.pointerId;
+    cursorLaserControlsEnabled = controls.enabled;
+    controls.enabled = false;
+    cameraState.dragging = false;
+    renderer.domElement.style.cursor = 'crosshair';
+    setCursorLaserPointer(event);
+    try {
+      if (renderer.domElement.setPointerCapture) renderer.domElement.setPointerCapture(event.pointerId);
+    } catch { /* browser may reject synthetic or stale input */ }
+    updateCursorLaserAim();
+    if (laserCooldown <= 0) applyCursorLaserDamage(cursorLaserAim.record, cursorLaserAim.point);
+  };
+  const moveCursorLaser = (event) => {
+    if (!cursorLaserActive || event.pointerId !== cursorLaserPointerId) return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    setCursorLaserPointer(event);
+    updateCursorLaserAim();
+  };
+  const endCursorLaser = (event) => {
+    if (!cursorLaserActive || (event.pointerId !== undefined && event.pointerId !== cursorLaserPointerId)) return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    stopCursorLaser();
+  };
+  scope.listen(renderer.domElement, 'pointerdown', startCursorLaser, { capture: true });
+  scope.listen(renderer.domElement, 'pointermove', moveCursorLaser, { capture: true });
+  scope.listen(renderer.domElement, 'pointerup', endCursorLaser, { capture: true });
+  scope.listen(renderer.domElement, 'pointercancel', endCursorLaser, { capture: true });
+  scope.listen(renderer.domElement, 'lostpointercapture', endCursorLaser, { capture: true });
   renderer.domElement.addEventListener('pointerdown', (e) => {
     downX = e.clientX; downY = e.clientY;
     if (e.button === 0 && cameraState.mode === 'free') {
@@ -2550,7 +2712,9 @@ function setupPicking() {
   });
   renderer.domElement.addEventListener('pointerup', (e) => {
     cameraState.dragging = false;
-    renderer.domElement.releasePointerCapture?.(e.pointerId);
+    try {
+      if (renderer.domElement.hasPointerCapture?.(e.pointerId)) renderer.domElement.releasePointerCapture(e.pointerId);
+    } catch { /* pointer capture may already be lost */ }
     if (e.button !== 0) return;
     if (Math.hypot(e.clientX - downX, e.clientY - downY) > 5) return;
     pointerNDC.set((e.clientX / window.innerWidth) * 2 - 1, -(e.clientY / window.innerHeight) * 2 + 1);
@@ -2580,6 +2744,7 @@ function setupPicking() {
     }
   });
   scope.listen(window, 'pointermove', (e) => {
+    if (cursorLaserActive) return;
     pointerPar.set((e.clientX / window.innerWidth) * 2 - 1, (e.clientY / window.innerHeight) * 2 - 1);
     if (!cameraState.dragging) return;
     const dx = e.clientX - cameraState.lastX;
@@ -2830,6 +2995,7 @@ function buildObjectSummary(record, galaxy = GALAXIES[currentGalaxy]) {
 function setHudVisible(visible, persist = true) {
   CONFIG.showHUD = !!visible;
   const hidden = !CONFIG.showHUD;
+  if (hidden) disableCursorLaserMode();
   document.body.classList.toggle('ui-hidden', hidden);
   const btn = ui('uiToggle');
   if (btn) {
@@ -3709,6 +3875,7 @@ function setupUI() {
   const pages = [...document.querySelectorAll('.tab-page')];
   for (const tab of tabs) {
     tab.addEventListener('click', () => {
+      if (tab.dataset.tab !== 'laser') disableCursorLaserMode();
       tabs.forEach(t => t.classList.toggle('active', t === tab));
       pages.forEach(p => p.classList.toggle('active', p.dataset.page === tab.dataset.tab));
     });
@@ -3833,8 +4000,10 @@ function setupUI() {
   bindSlider('laserPower', 'laserPowerVal', uiParams, 'laserPower', v => v.toFixed(0));
   bindSlider('laserDuration', 'laserDurationVal', uiParams, 'laserDuration', v => v.toFixed(1) + ' s');
   bindSwitch('laserDestructive', uiParams, 'laserDestructive');
+  bindSwitch('cursorLaserMode', uiParams, 'cursorLaserMode', enabled => { if (!enabled) stopCursorLaser(); });
   ui('laserColor').addEventListener('input', () => { uiParams.laserColor = ui('laserColor').value; });
-  ui('fireLaser').addEventListener('click', fireLaser);
+  const fireButton = ui('fireLaser');
+  fireButton.addEventListener('click', fireLaser);
 
   // Camera
   for (const button of document.querySelectorAll('.cam-btn')) {
@@ -3866,14 +4035,20 @@ function setupUI() {
       return;
     }
     if (/^(INPUT|SELECT|TEXTAREA|BUTTON)$/.test(event.target?.tagName || '')) return;
-    if (event.code === 'KeyF' && !titleMode) { fireLaser(); return; }
+    if (event.code === 'KeyF' && !titleMode) {
+      fireLaser();
+      return;
+    }
     cameraState.keys.add(event.code);
     if (event.code === 'Space' && cameraState.mode === 'free') {
       event.preventDefault();
     }
   });
-  scope.listen(window, 'keyup', event => cameraState.keys.delete(event.code));
+  scope.listen(window, 'keyup', event => {
+    cameraState.keys.delete(event.code);
+  });
   scope.listen(window, 'blur', () => {
+    stopCursorLaser();
     cameraState.keys.clear();
     cameraState.dragging = false;
   });
@@ -3923,6 +4098,7 @@ function setupUI() {
   GALAXIES.forEach(g => g.planets.forEach(def => { if (def._e0 === undefined) def._e0 = def.e; }));
 
   ui('collapseBtn').addEventListener('click', () => {
+    disableCursorLaserMode();
     const collapsed = ui('ui').classList.toggle('collapsed');
     const label = collapsed ? 'Expand panel' : 'Collapse panel';
     ui('collapseBtn').innerHTML = collapsed ? '+' : '&#8722;';
@@ -4185,6 +4361,7 @@ function stopSolarOnboarding() {
 // z-20 title) so the camera snap back to the drift path is never seen.
 // The sim world is preserved on purpose — the drift renders it as backdrop.
 function returnToMenu(view = 'modes') {
+  disableCursorLaserMode();
   stopSolarOnboarding();
   clearTimeout(introUiTimer);
   for (const id of ['ui', 'bottomBar', 'uiToggle', 'simBackLink'])
@@ -4451,8 +4628,8 @@ function updateDynamics(dDays, dt) {
 
 function updateEffects(dt, dDays) {
   for (const fx of effects) {
-    fx.life += dt;
-    const t = fx.life / fx.maxLife;
+    if (!fx.cursorAimed) fx.life += dt;
+    const t = fx.maxLife === Infinity ? 0 : fx.life / fx.maxLife;
     if (fx.kind === 'grow') {
       fx.obj.scale.setScalar(THREE.MathUtils.lerp(0.01, fx.target, THREE.MathUtils.smoothstep(t, 0, 1)));
     } else if (fx.kind === 'flash') {
@@ -4500,24 +4677,22 @@ function updateEffects(dt, dDays) {
       }
     } else if (fx.kind === 'laser') {
       const rec = fx.target;
-      if (rec && rec.visible && !rec.destroyed) {
+      if (!fx.cursorAimed && rec && rec.visible && !rec.destroyed) {
         // endpoint tracks the living target; freezes where it died otherwise
         _v1.copy(rec.anchor.position).sub(fx.start).normalize();
         fx.end.copy(rec.anchor.position).addScaledVector(_v1, -rec.geoR);
       }
       placeLaser(fx);
-      const fade = Math.max(0, 1 - t);
+      if (fx.cursorAimed) {
+        const trail = fx.trail || 0;
+        fx.group.scale.x = 1 + trail;
+        fx.group.scale.z = 1 + trail * 0.65;
+      }
+      const fade = fx.cursorAimed ? 1 : Math.max(0, 1 - t);
       fx.outerMat.opacity = 0.45 * fade;
       fx.coreMat.opacity = 0.9 * fade;
-      fx.glow.material.opacity = 0.9 * fade;
-      if (t >= 1) {
-        galaxyGroup.remove(fx.group);
-        galaxyGroup.remove(fx.glow);
-        for (const mesh of fx.group.children) mesh.geometry.dispose();
-        fx.outerMat.dispose();
-        fx.coreMat.dispose();
-        fx.glow.material.dispose(); // its map is the shared point-sprite texture — keep it
-      }
+      fx.glow.material.opacity = fx.glowOpacity * fade;
+      if (!fx.cursorAimed && t >= 1) disposeLaserEffect(fx);
     }
   }
   effects = effects.filter(fx => fx.life < fx.maxLife);
@@ -4594,6 +4769,10 @@ function update(dt) {
   if (dDays > 0) updateDynamics(dDays, dt);
   updateTrojans();
   if (laserCooldown > 0) laserCooldown = Math.max(0, laserCooldown - dt); // real time: ticks while paused
+  if (cursorLaserActive) {
+    updateCursorLaserAim(dt);
+    if (laserCooldown <= 0) applyCursorLaserDamage(cursorLaserAim.record, cursorLaserAim.point);
+  }
   warningUpdateTimer += dt;
   if (warningUpdateTimer >= 0.5) {
     warningUpdateTimer %= 0.5;
@@ -4698,7 +4877,7 @@ function runSelfCheck() {
     'barPlay', 'barPause', 'barReverse', 'timelinePrev', 'timelineNext',
     'barSpeedDown', 'barSpeedUp', 'timelineReset', 'timelinePresent',
     'timelineScrubber', 'timelineDetails', 'timelineDetailsPanel',
-    'laserTarget', 'fireLaser',
+    'laserTarget', 'cursorLaserMode', 'fireLaser',
   ];
   checks.dom = requiredDomIds.every(id => !!document.getElementById(id));
   checks.settings = CONFIG.displayMode === 'windowed' || CONFIG.displayMode === 'fullscreen';
@@ -4847,6 +5026,7 @@ function setView(view) {
 
 function pause() {
   if (paused || destroyed) return;
+  stopCursorLaser();
   paused = true;
   cancelAnimationFrame(frameId);
   clock.stop();
@@ -4861,6 +5041,7 @@ function resume() {
 
 function destroy() {
   if (destroyed) return;
+  disableCursorLaserMode();
   stopSolarOnboarding();
   paused = true;
   cancelAnimationFrame(frameId);
