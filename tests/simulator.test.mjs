@@ -1222,3 +1222,40 @@ test('adds cursor-tracked laser mode without changing single-shot mode', () => {
   assert.match(functionSource('destroy'), /disableCursorLaserMode\(\)/);
   assert.match(functionSource('stopCursorLaser'), /resetCursorLaserMotion\(\)/);
 });
+
+test('layers color-preserving cinematic laser visuals without changing targeting', () => {
+  const create = functionSource('createLaserEffect');
+  assert.match(create, /new THREE\.ShaderMaterial/);
+  assert.match(create, /uColor/);
+  assert.match(create, /uTime/);
+  assert.match(create, /PointsMaterial/);
+  assert.match(create, /LineSegments|Line\(/);
+  assert.match(create, /cursorAimed/);
+  assert.match(create, /velocity|trail/);
+
+  const update = functionSource('updateLaserVisuals');
+  assert.match(update, /flowMat|energyFlow/);
+  assert.match(update, /visualTime/);
+  assert.match(update, /particles|spark/);
+  assert.match(update, /arc/);
+  assert.match(update, /cursorAimed[\s\S]*?velocity|trail/);
+
+  const dispose = functionSource('disposeLaserEffect');
+  assert.match(dispose, /flowMat|energyFlow/);
+  assert.match(dispose, /particle|spark/);
+  assert.match(dispose, /arc/);
+});
+
+test('ramps each laser beam from the emitter before reaching its endpoint', () => {
+  const create = functionSource('createLaserEffect');
+  assert.match(create, /beamProgress\s*:\s*0/);
+  assert.match(create, /beamEnd/);
+  assert.match(create, /beamDuration/);
+  assert.match(create, /cursorAimed\s*\?\s*LASER_FIRE_RAMP/);
+  assert.match(runtime, /LASER_FIRE_RAMP\s*=\s*1(?:\.0)?/);
+  const update = functionSource('updateEffects');
+  assert.match(update, /beamProgress[\s\S]*?beamDuration/);
+  assert.match(update, /ramp\s*=\s*fx\.beamProgress/);
+  assert.match(update, /beamEnd[\s\S]*?fx\.end\.copy/);
+  assert.match(functionSource('updateCursorLaserAim'), /beamEnd\.copy/);
+});

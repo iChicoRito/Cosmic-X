@@ -1548,6 +1548,7 @@ const uiParams = {
 };
 let laserCooldown = 0;
 const CURSOR_LASER_RANGE = 1600;
+const LASER_FIRE_RAMP = 1;
 let cursorLaserActive = false;
 let cursorLaserPointerId = null;
 let cursorLaserControlsEnabled = null;
@@ -1841,9 +1842,11 @@ function destroyPlanet(rec, point) {
   killPlanet(rec);
 }
 
-function spawnExplosion(point, scale = 1) {
+function spawnExplosion(point, scale = 1, color = null) {
+  const impactColor = color ? new THREE.Color(color) : new THREE.Color(0xffcc88);
+  const sparkColor = impactColor.clone().lerp(new THREE.Color(0xffffff), 0.3);
   // flash
-  const light = new THREE.PointLight(0xffcc88, 30 * scale, 300, 1.4);
+  const light = new THREE.PointLight(impactColor, 30 * scale, 300, 1.4);
   light.position.copy(point);
   galaxyGroup.add(light);
   effects.push({ kind: 'flash', light, life: 0, maxLife: 0.9 });
@@ -1860,7 +1863,7 @@ function spawnExplosion(point, scale = 1) {
   const geo = new THREE.BufferGeometry();
   geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
   const pts = new THREE.Points(geo, new THREE.PointsMaterial({
-    map: createPointSpriteTexture(), color: 0xffb060, size: 1.6 * scale,
+    map: createPointSpriteTexture(), color: sparkColor, size: 1.6 * scale,
     transparent: true, opacity: 1, blending: THREE.AdditiveBlending,
     depthWrite: false, sizeAttenuation: true,
   }));
@@ -1869,7 +1872,7 @@ function spawnExplosion(point, scale = 1) {
 
   // shockwave ring
   const ring = new THREE.Sprite(new THREE.SpriteMaterial({
-    map: createShockTexture(), color: 0xffd0a0, transparent: true, opacity: 0.9,
+    map: createShockTexture(), color: sparkColor, transparent: true, opacity: 0.9,
     blending: THREE.AdditiveBlending, depthWrite: false,
   }));
   ring.position.copy(point);
@@ -1925,6 +1928,54 @@ function placeLaser(fx) {
   fx.glow.position.copy(fx.end);
 }
 
+function updateLaserVisuals(fx, dt) {
+  if (!fx.flowMat) return;
+  fx.flowMat.uniforms.uTime.value += dt;
+  fx.flowMat.uniforms.uVelocity.value = fx.cursorAimed ? (fx.trail || 0) * 5 : 0;
+  fx.visualTime = (fx.visualTime || 0) + dt;
+  const visualTime = fx.visualTime;
+  const phase = visualTime * (fx.cursorAimed ? 1.8 + (fx.trail || 0) * 6 : 2.2);
+  const particles = fx.particleMesh.geometry.attributes.position.array;
+  const spread = fx.width * (fx.cursorAimed ? 1.8 + (fx.trail || 0) * 3 : 1.35);
+  for (let i = 0; i < fx.particlePhases.length; i++) {
+    const j = i * 3;
+    const p = (fx.particlePhases[i] + phase * 0.08) % 1;
+    const seed = fx.particleSeeds[i];
+    particles[j] = Math.sin(visualTime * 9 + seed * 31) * spread * (0.35 + seed * 0.65);
+    particles[j + 1] = -0.5 + p;
+    particles[j + 2] = Math.cos(visualTime * 7 + seed * 23) * spread * (0.35 + seed * 0.65);
+  }
+  fx.particleMesh.geometry.attributes.position.needsUpdate = true;
+  fx.particleMesh.material.size = fx.width * (fx.cursorAimed ? 2.3 + (fx.trail || 0) * 7 : 1.8);
+  fx.particleMesh.material.opacity = (fx.cursorAimed ? 0.42 + (fx.trail || 0) * 0.7 : 0.3) * (fx.cursorAimed ? 1 : Math.max(0, 1 - fx.life / fx.maxLife));
+
+  const arc = fx.arc.geometry.attributes.position.array;
+  const arcSpread = fx.width * (1.1 + (fx.trail || 0) * 3);
+  for (let i = 0; i < fx.arcSegments; i++) {
+    const y = -0.5 + i / (fx.arcSegments - 1);
+    const j = i * 3;
+    arc[j] = Math.sin(visualTime * 18 + i * 2.7) * arcSpread;
+    arc[j + 1] = y;
+    arc[j + 2] = Math.cos(visualTime * 14 + i * 3.1) * arcSpread * 0.65;
+  }
+  fx.arc.geometry.attributes.position.needsUpdate = true;
+  fx.arc.material.opacity = (0.34 + (fx.trail || 0) * 0.8) * (fx.cursorAimed ? 1 : Math.max(0, 1 - fx.life / fx.maxLife));
+
+  if (fx.trailMesh) {
+    const trail = fx.trailMesh.geometry.attributes.position.array;
+    const stretch = Math.min(0.34, (fx.trail || 0) * 1.8);
+    for (let i = 0; i < fx.trailPoints; i++) {
+      const j = i * 3;
+      const p = i / (fx.trailPoints - 1);
+      trail[j] = Math.sin(visualTime * 11 + i) * fx.width * (1 - p) * 0.8;
+      trail[j + 1] = 0.5 - p * stretch;
+      trail[j + 2] = Math.cos(visualTime * 9 + i * 1.4) * fx.width * (1 - p) * 0.5;
+    }
+    fx.trailMesh.geometry.attributes.position.needsUpdate = true;
+    fx.trailMesh.material.opacity = (0.18 + (fx.trail || 0) * 0.7) * (fx.cursorAimed ? 1 : Math.max(0, 1 - fx.life / fx.maxLife));
+  }
+}
+
 function disposeLaserEffect(fx) {
   if (!fx) return;
   galaxyGroup?.remove(fx.group);
@@ -1932,6 +1983,13 @@ function disposeLaserEffect(fx) {
   for (const mesh of fx.group.children) mesh.geometry.dispose();
   fx.outerMat.dispose();
   fx.coreMat.dispose();
+  fx.flowMat?.dispose();
+  fx.particleMesh?.material.dispose();
+  fx.particleMesh?.geometry.dispose();
+  fx.arc?.material.dispose();
+  fx.arc?.geometry.dispose();
+  fx.trailMesh?.material.dispose();
+  fx.trailMesh?.geometry.dispose();
   fx.glow.material.dispose(); // its map is the shared point-sprite texture — keep it
   effects = effects.filter(effect => effect !== fx);
 }
@@ -1939,18 +1997,63 @@ function disposeLaserEffect(fx) {
 function createLaserEffect(target, start, end, maxLife, cursorAimed = false) {
   const w = uiParams.laserWidth;
   const color = new THREE.Color(uiParams.laserColor);
+  const edgeColor = color.clone().multiplyScalar(0.62);
+  const coreColor = color.clone().lerp(new THREE.Color(0xffffff), 0.72);
+  const sparkColor = color.clone().lerp(new THREE.Color(0xffffff), 0.38);
+  const spriteTexture = createPointSpriteTexture();
   const group = new THREE.Group();
-  const outerMat = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.45, blending: THREE.AdditiveBlending, depthWrite: false });
+  const outerMat = new THREE.MeshBasicMaterial({ color: edgeColor, transparent: true, opacity: 0.24, blending: THREE.AdditiveBlending, depthWrite: false });
   group.add(new THREE.Mesh(new THREE.CylinderGeometry(w, w, 1, 10, 1, true), outerMat));
-  const coreMat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.9, blending: THREE.AdditiveBlending, depthWrite: false });
-  group.add(new THREE.Mesh(new THREE.CylinderGeometry(w * 0.35, w * 0.35, 1, 8, 1, true), coreMat));
+  const coreMat = new THREE.MeshBasicMaterial({ color: coreColor, transparent: true, opacity: 0.94, blending: THREE.AdditiveBlending, depthWrite: false });
+  group.add(new THREE.Mesh(new THREE.CylinderGeometry(w * 0.3, w * 0.3, 1, 8, 1, true), coreMat));
+  const flowMat = new THREE.ShaderMaterial({
+    uniforms: { uColor: { value: color.clone() }, uTime: { value: 0 }, uVelocity: { value: 0 } },
+    vertexShader: 'varying float vY; void main(){ vY=position.y; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0); }',
+    fragmentShader: 'uniform vec3 uColor; uniform float uTime; uniform float uVelocity; varying float vY; void main(){ float flow=0.5+0.5*sin((vY+uTime*(2.5+uVelocity))*22.0); vec3 c=mix(uColor,vec3(1.0),0.5+flow*0.35); gl_FragColor=vec4(c,0.42+flow*0.22); }',
+    transparent: true, blending: THREE.AdditiveBlending, depthWrite: false,
+  });
+  group.add(new THREE.Mesh(new THREE.CylinderGeometry(w * 0.58, w * 0.58, 1, 8, 1, true), flowMat));
+
+  const particleCount = cursorAimed ? 18 : 10;
+  const particlePhases = new Float32Array(particleCount);
+  const particleSeeds = new Float32Array(particleCount);
+  for (let i = 0; i < particleCount; i++) {
+    particlePhases[i] = Math.random();
+    particleSeeds[i] = Math.random();
+  }
+  const particleGeo = new THREE.BufferGeometry();
+  particleGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(particleCount * 3), 3));
+  const particleMesh = new THREE.Points(particleGeo, new THREE.PointsMaterial({
+    map: spriteTexture, color: sparkColor, size: w * 2, transparent: true,
+    opacity: 0.35, blending: THREE.AdditiveBlending, depthWrite: false, sizeAttenuation: true,
+  }));
+  group.add(particleMesh);
+
+  const arcSegments = 8;
+  const arcGeo = new THREE.BufferGeometry();
+  arcGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(arcSegments * 3), 3));
+  const arc = new THREE.Line(arcGeo, new THREE.LineBasicMaterial({
+    color: sparkColor, transparent: true, opacity: 0.35, blending: THREE.AdditiveBlending, depthWrite: false,
+  }));
+  group.add(arc);
+
+  const trailPoints = cursorAimed ? 5 : 0;
+  let trailMesh = null;
+  if (trailPoints) {
+    const trailGeo = new THREE.BufferGeometry();
+    trailGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(trailPoints * 3), 3));
+    trailMesh = new THREE.Line(trailGeo, new THREE.LineBasicMaterial({
+      color: color.clone(), transparent: true, opacity: 0.2, blending: THREE.AdditiveBlending, depthWrite: false,
+    }));
+    group.add(trailMesh);
+  }
   group.frustumCulled = false;
-  const glowOpacity = cursorAimed ? 0.12 : 0.9;
-  const glow = new THREE.Sprite(new THREE.SpriteMaterial({ map: createPointSpriteTexture(), color, transparent: true, opacity: glowOpacity, blending: THREE.AdditiveBlending, depthWrite: false }));
-  glow.scale.setScalar(cursorAimed ? 0.8 + w * 1.5 : 3 + w * 6);
+  const glowOpacity = cursorAimed ? 0.12 : 0.35;
+  const glow = new THREE.Sprite(new THREE.SpriteMaterial({ map: spriteTexture, color: edgeColor, transparent: true, opacity: glowOpacity, blending: THREE.AdditiveBlending, depthWrite: false }));
+  glow.scale.setScalar(cursorAimed ? 0.8 + w * 1.5 : 2 + w * 3);
   galaxyGroup.add(group);
   galaxyGroup.add(glow);
-  const fx = { kind: 'laser', group, outerMat, coreMat, glow, glowOpacity, target, start: start.clone(), end: end.clone(), life: 0, maxLife, cursorAimed };
+  const fx = { kind: 'laser', group, outerMat, coreMat, flowMat, particleMesh, particlePhases, particleSeeds, arc, arcSegments, trailMesh, trailPoints, glow, glowOpacity, width: w, target, start: start.clone(), end: start.clone(), beamEnd: end.clone(), beamProgress: 0, beamDuration: cursorAimed ? LASER_FIRE_RAMP : Math.min(LASER_FIRE_RAMP, maxLife), life: 0, maxLife, cursorAimed, trail: 0, velocity: new THREE.Vector3() };
   effects.push(fx);
   placeLaser(fx);
   return fx;
@@ -2022,11 +2125,12 @@ function updateCursorLaserAim(dt = 1 / 60) {
   }
   if (!heldLaserEffect) heldLaserEffect = createLaserEffect(null, start, cursorLaserMotion.point, Infinity, true);
   heldLaserEffect.start.copy(start);
-  heldLaserEffect.end.copy(cursorLaserMotion.point);
+  heldLaserEffect.beamEnd.copy(cursorLaserMotion.point);
   heldLaserEffect.target = cursorLaserAim.record;
   placeLaser(heldLaserEffect);
   const trail = Math.min(0.35, cursorLaserMotion.velocity.length() * 0.01);
   heldLaserEffect.trail = trail;
+  heldLaserEffect.velocity.copy(cursorLaserMotion.velocity);
   heldLaserEffect.group.scale.x = 1 + trail;
   heldLaserEffect.group.scale.z = 1 + trail * 0.65;
 }
@@ -2034,7 +2138,7 @@ function updateCursorLaserAim(dt = 1 / 60) {
 function applyCursorLaserDamage(record, point) {
   if (!isCursorLaserTarget(record)) return;
   const energy = uiParams.laserPower;
-  spawnExplosion(point, Math.min(3, 0.6 + energy * 0.02));
+  spawnExplosion(point, Math.min(3, 0.6 + energy * 0.02), uiParams.laserColor);
   if (record.isMoon) {
     if (uiParams.laserDestructive && energy > Math.max(4, record.def.radiusE * 160)) destroyMoon(record, point);
     else addCrater(record, point, Math.min(record.geoR * 0.6, 0.1 + energy * 0.003));
@@ -2076,7 +2180,7 @@ function fireLaser() {
 
   // damage mirrors handleImpact's ladder with energy taken straight from Power
   const energy = uiParams.laserPower;
-  spawnExplosion(hit, Math.min(3, 0.6 + energy * 0.02));
+  spawnExplosion(hit, Math.min(3, 0.6 + energy * 0.02), uiParams.laserColor);
   const frac = energy / (rec.def.radiusE * 55);
   if (uiParams.laserDestructive && frac > 1) {
     destroyPlanet(rec, hit);
@@ -4680,8 +4784,11 @@ function updateEffects(dt, dDays) {
       if (!fx.cursorAimed && rec && rec.visible && !rec.destroyed) {
         // endpoint tracks the living target; freezes where it died otherwise
         _v1.copy(rec.anchor.position).sub(fx.start).normalize();
-        fx.end.copy(rec.anchor.position).addScaledVector(_v1, -rec.geoR);
+        fx.beamEnd.copy(rec.anchor.position).addScaledVector(_v1, -rec.geoR);
       }
+      fx.beamProgress = Math.min(1, fx.beamProgress + dt / fx.beamDuration);
+      const ramp = fx.beamProgress;
+      fx.end.copy(fx.start).lerp(fx.beamEnd, ramp);
       placeLaser(fx);
       if (fx.cursorAimed) {
         const trail = fx.trail || 0;
@@ -4689,8 +4796,9 @@ function updateEffects(dt, dDays) {
         fx.group.scale.z = 1 + trail * 0.65;
       }
       const fade = fx.cursorAimed ? 1 : Math.max(0, 1 - t);
-      fx.outerMat.opacity = 0.45 * fade;
-      fx.coreMat.opacity = 0.9 * fade;
+      fx.outerMat.opacity = 0.24 * fade;
+      fx.coreMat.opacity = 0.94 * fade;
+      updateLaserVisuals(fx, dt);
       fx.glow.material.opacity = fx.glowOpacity * fade;
       if (!fx.cursorAimed && t >= 1) disposeLaserEffect(fx);
     }
