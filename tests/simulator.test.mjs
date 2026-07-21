@@ -621,6 +621,22 @@ test('offers all three simulation modes from the title screen', () => {
   });
 });
 
+  test('launches the mandatory Solar tour after the HUD intro and restores playback', () => {
+    assert.match(runtime, /startOnboardingTour/);
+    assert.match(runtime, /storageKey:\s*ONBOARDING_KEYS\.solar/);
+  const titleScreen = functionSource('setupTitleScreen');
+  assert.match(titleScreen, /introUiTimer[\s\S]*?startSolarOnboarding\(\)/);
+  const tour = functionSource('startSolarOnboarding');
+  assert.match(tour, /fullscreenNotice[\s\S]*?\.open[\s\S]*?addEventListener\(['"]close['"],\s*startSolarOnboarding/);
+  for (const target of ['#ui', '#bottomBar', '#uiToggle', '#simBackLink']) {
+    assert.match(tour, new RegExp(`target:\\s*['"]${target.replace('#', '\\#')}['"]`));
+  }
+  assert.match(tour, /setPlayback\(['"]paused['"]\)/);
+  assert.match(tour, /onEnd[\s\S]*?setPlayback\(/);
+  assert.match(functionSource('returnToMenu'), /stopSolarOnboarding\(\)/);
+  assert.match(functionSource('destroy'), /stopSolarOnboarding\(\)/);
+});
+
 test('fully wipes spawned objects and their recorded events on simulation reset', () => {
   const handler = section("ui('resetSim')", "GALAXIES.forEach(g =>");
   assertContracts(handler, {

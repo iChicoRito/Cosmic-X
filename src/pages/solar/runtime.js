@@ -24,6 +24,7 @@ import { CSS2DRenderer, CSS2DObject } from 'three/addons/renderers/CSS2DRenderer
 import { Lensflare, LensflareElement } from 'three/addons/objects/Lensflare.js';
 import { disposeThreeRuntime } from '../../shared/dispose-three.js';
 import { createResourceScope } from '../../shared/resource-scope.js';
+import { ONBOARDING_KEYS, startOnboardingTour } from '../../shared/onboarding-tour.js';
 
 export function createSolarRuntime({ root, navigate, replaceRoute, initialView = 'title' }) {
 const scope = createResourceScope(window);
@@ -37,6 +38,7 @@ let frameId = 0;
 let paused = false;
 let destroyed = false;
 let routeActivation = false;
+let onboardingTour = null;
 const { BloomClampShader, LensingShader } = createPostprocessingShaders(THREE);
 
 /* ================================================================
@@ -4115,10 +4117,75 @@ function hideBigBangPreview() {
   preview.contentWindow?.postMessage('cosmicx:preview:pause', location.origin);
 }
 
+function startSolarOnboarding() {
+  if (onboardingTour) return;
+  const fullscreenNotice = ui('fullscreenNotice');
+  if (fullscreenNotice.open) {
+    fullscreenNotice.addEventListener('close', startSolarOnboarding, { once: true, signal: scope.signal });
+    return;
+  }
+  let restore = null;
+  onboardingTour = startOnboardingTour({
+    appRoot: root,
+    storageKey: ONBOARDING_KEYS.solar,
+    steps: [
+      {
+        target: renderer.domElement,
+        title: 'Navigate Space',
+        description: 'Left-drag to orbit, right-drag to pan, use the mouse wheel to zoom, and select a body to inspect it.',
+      },
+      {
+        target: '#ui',
+        title: 'Controls',
+        description: 'Use World, Sim, Spawn, Impact, Laser, Cam, and FX to explore the system, change time, create objects, trigger events, choose a camera, and tune visuals.',
+      },
+      {
+        target: '#bottomBar',
+        title: 'Timeline & Playback',
+        description: 'Play, pause, reverse, change speed, or scrub across the simulation timeline.',
+      },
+      {
+        target: '#uiToggle',
+        title: 'Immersive View',
+        description: 'Hide or restore the interface with this button or the H key.',
+      },
+      {
+        target: '#simBackLink',
+        title: 'Back to Menu',
+        description: 'Return to mode selection whenever you want to leave the simulation.',
+      },
+    ],
+    onStart: () => {
+      restore = {
+        playing: CONFIG.playing,
+        direction: playbackDirection,
+        panelCollapsed: ui('ui').classList.contains('collapsed'),
+        timelineCollapsed: ui('bottomBar').classList.contains('collapsed'),
+      };
+      if (restore.panelCollapsed) ui('collapseBtn').click();
+      if (restore.timelineCollapsed) ui('barCollapse').click();
+      setPlayback('paused');
+    },
+    onEnd: () => {
+      onboardingTour = null;
+      if (!restore || destroyed) return;
+      if (restore.panelCollapsed && !ui('ui').classList.contains('collapsed')) ui('collapseBtn').click();
+      if (restore.timelineCollapsed && !ui('bottomBar').classList.contains('collapsed')) ui('barCollapse').click();
+      setPlayback(restore.playing ? (restore.direction < 0 ? 'reverse' : 'forward') : 'paused');
+    },
+  });
+}
+
+function stopSolarOnboarding() {
+  onboardingTour?.destroy();
+  onboardingTour = null;
+}
+
 // Sandbox -> menu without a reload: dip through #fade (z-15, under the
 // z-20 title) so the camera snap back to the drift path is never seen.
 // The sim world is preserved on purpose — the drift renders it as backdrop.
 function returnToMenu(view = 'modes') {
+  stopSolarOnboarding();
   clearTimeout(introUiTimer);
   for (const id of ['ui', 'bottomBar', 'uiToggle', 'simBackLink'])
     document.getElementById(id).classList.remove('visible');
@@ -4189,6 +4256,7 @@ function setupTitleScreen() {
         document.getElementById('bottomBar').classList.add('visible');
         document.getElementById('uiToggle').classList.add('visible');
         document.getElementById('simBackLink').classList.add('visible');
+        startSolarOnboarding();
       }, CONFIG.introDur * 1000 - 500);
     };
     if (!routeActivation) replaceRoute('/solar-system');
@@ -4793,6 +4861,7 @@ function resume() {
 
 function destroy() {
   if (destroyed) return;
+  stopSolarOnboarding();
   paused = true;
   cancelAnimationFrame(frameId);
   clock.stop();

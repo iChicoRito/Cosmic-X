@@ -3,6 +3,7 @@ import { fbm, makeCanvas } from '../../shared/procedural-canvas.js';
 import { paintRangeFill } from '../../shared/range.js';
 import { disposeThreeRuntime } from '../../shared/dispose-three.js';
 import { createResourceScope } from '../../shared/resource-scope.js';
+import { ONBOARDING_KEYS, startOnboardingTour } from '../../shared/onboarding-tour.js';
 import {
   GALAXY_TYPES, PARAM_DEFS, defaultParams, sanitizeParams, sampleGalaxy,
   randomGalaxyName, angularVelocity, mulberry32,
@@ -37,6 +38,7 @@ const setTimeout = scope.setTimeout;
 let frameId = 0;
 let paused = false;
 let destroyed = false;
+let onboardingTour = null;
 const { BloomClampShader, LensingShader } = createPostprocessingShaders(THREE);
 const $ = id => document.getElementById(id);
 const TAU = Math.PI * 2;
@@ -1149,6 +1151,57 @@ function finalizeGalaxy() {
   toast(`${state.params.name} ignites. You are its creator.`);
 }
 
+function startCreatorOnboarding() {
+  if (onboardingTour) return;
+  let wasPlaying = false;
+  let panelCollapsed = false;
+  onboardingTour = startOnboardingTour({
+    appRoot: root,
+    storageKey: ONBOARDING_KEYS.creator,
+    steps: [
+      {
+        target: renderer.domElement,
+        title: 'Navigate Your Galaxy',
+        description: 'Drag to orbit, right-drag to pan, use the mouse wheel to zoom, click objects to inspect them, and double-click a stellar system to enter it.',
+      },
+      {
+        target: '#crPanel',
+        title: 'Creator Controls',
+        description: 'Use Build, Place, Events, Stats, Codex, Save, and FX to shape and manage the galaxy. System views add Bodies, Sim, and Cam.',
+      },
+      {
+        target: '#crTransport',
+        title: 'Cosmic Time',
+        description: 'Pause the simulation or choose how quickly your galaxy evolves.',
+      },
+      {
+        target: '#creatorBackLink',
+        title: 'Back to Modes',
+        description: 'Return to mode selection, or return from a stellar system to its galaxy.',
+      },
+    ],
+    onStart: () => {
+      wasPlaying = state.sim.playing;
+      panelCollapsed = $('crPanel').classList.contains('collapsed');
+      if (panelCollapsed) $('crPanelCollapse').click();
+      state.sim.playing = false;
+      syncTransport();
+    },
+    onEnd: () => {
+      onboardingTour = null;
+      if (destroyed) return;
+      if (panelCollapsed && !$('crPanel').classList.contains('collapsed')) $('crPanelCollapse').click();
+      state.sim.playing = wasPlaying;
+      syncTransport();
+    },
+  });
+}
+
+function stopCreatorOnboarding() {
+  onboardingTour?.destroy();
+  onboardingTour = null;
+}
+
 function enterSim(regen) {
   state.view = 'sim';
   $('crTitle').classList.add('hidden');
@@ -1164,6 +1217,7 @@ function enterSim(regen) {
   refreshSlots();
   const R = state.params.diameter / 2;
   flyTo(new THREE.Vector3(R * 0.4, R * 0.75, R * 1.5), new THREE.Vector3());
+  startCreatorOnboarding();
 }
 
 /* camera tween */
@@ -2788,6 +2842,7 @@ function resume() {
 
 function destroy() {
   if (destroyed) return;
+  stopCreatorOnboarding();
   paused = true;
   cancelAnimationFrame(frameId);
   clock.stop();

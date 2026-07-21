@@ -402,3 +402,17 @@ test('the Sim tab casts real eclipse shadows and adapts the manual event', () =>
   assert.match(runtime, /Trigger lunar eclipse/);
   assert.match(runtime, /Trigger transit/);
 });
+
+  test('launches the mandatory Creator tour after galaxy setup and restores playback', () => {
+    assert.match(runtime, /startOnboardingTour/);
+    assert.match(runtime, /storageKey:\s*ONBOARDING_KEYS\.creator/);
+  const enter = /function enterSim\(regen\) \{[\s\S]*?\n\}/.exec(runtime)?.[0] || '';
+  assert.match(enter, /startCreatorOnboarding\(\)/);
+  const tour = /function startCreatorOnboarding\(\) \{[\s\S]*?\n\}/.exec(runtime)?.[0] || '';
+  for (const target of ['#crPanel', '#crTransport', '#creatorBackLink']) {
+    assert.match(tour, new RegExp(`target:\\s*['"]${target.replace('#', '\\#')}['"]`));
+  }
+  assert.match(tour, /state\.sim\.playing = false/);
+  assert.match(tour, /onEnd[\s\S]*?state\.sim\.playing = wasPlaying/);
+  assert.match(/function destroy\(\) \{[\s\S]*?\n\}/.exec(runtime)?.[0] || '', /stopCreatorOnboarding\(\)/);
+});

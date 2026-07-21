@@ -4,7 +4,7 @@
 
 🟨 Refine the Big Bang Theory by improving its visuals, flow, animations, and overall player experience while keeping the core gameplay and mechanics intact.
 
-🟨 Add an interactive tour guide for new players at the start of their first session. The guide should introduce the game controls, explain the purpose of each controller/button, and walk players through the core gameplay mechanics so they understand how to navigate and interact with the game before they begin.
+✅ Add an interactive tour guide for new players at the start of their first session. The guide should introduce the game controls, explain the purpose of each controller/button, and walk players through the core gameplay mechanics so they understand how to navigate and interact with the game before they begin.
 
 🟨 --------
 
