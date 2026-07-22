@@ -30,7 +30,7 @@ export function creatorTemplate() {
     <div class="cr-name-row">
       <label for="crNameInput">Galaxy name</label>
       <input id="crNameInput" maxlength="24" autocomplete="off" spellcheck="false">
-      <button id="crSeedBtn" class="cr-btn small" type="button" title="Reroll the random seed">&#10227; Seed</button>
+      <button id="crSeedBtn" class="cr-btn small" type="button" title="Reroll the random seed">Reroll Seed</button>
     </div>
     <div id="crStructureSliders" class="cr-sliders"></div>
   </div>
@@ -44,7 +44,7 @@ export function creatorTemplate() {
     <button id="crPrevBtn" class="cr-btn" type="button" disabled>Back</button>
     <span class="cr-foot-gap"></span>
     <button id="crNextBtn" class="cr-btn primary" type="button">Next</button>
-    <button id="crGenerateBtn" class="cr-btn primary" type="button" hidden>&#10022; Create Galaxy</button>
+    <button id="crGenerateBtn" class="cr-btn primary" type="button" hidden>Create Galaxy</button>
   </footer>
 </section>
 
@@ -138,7 +138,7 @@ export function creatorTemplate() {
       <div class="cr-save-actions">
         <button id="crExportBtn" class="cr-btn" type="button">Export JSON</button>
         <button id="crImportBtn" class="cr-btn" type="button">Import JSON</button>
-        <button id="crShotBtn" class="cr-btn" type="button">&#128247; Screenshot</button>
+        <button id="crShotBtn" class="cr-btn" type="button">Screenshot</button>
       </div>
       <input type="file" id="crImportFile" accept=".json,application/json" hidden>
     </div>

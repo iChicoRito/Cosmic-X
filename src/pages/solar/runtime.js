@@ -4563,7 +4563,6 @@ let titleAngle = 2.2;
 let titlePan = 0;
 let menuTitleRun = 0;
 let introUiTimer = 0;
-let launching = false;
 const titleAim = new THREE.Vector3();
 
 function typeMenuTitle(text) {
@@ -4612,16 +4611,20 @@ function setupFullscreenNotice() {
   notice.showModal();
 }
 
-// Lazy live preview reuses the actual Big Bang title scene.
-function showBigBangPreview() {
-  const preview = document.getElementById('bigbangPreview');
+// Lazy live previews reuse the actual mode scenes and keep only one running.
+function showModePreview(id) {
+  const preview = document.getElementById(id);
   if (!preview.src) preview.src = preview.dataset.src;
-  preview.classList.add('active');
-  preview.contentWindow?.postMessage('cosmicx:preview:resume', location.origin);
+  for (const frame of document.querySelectorAll('.mode-preview')) {
+    const active = frame === preview;
+    frame.classList.toggle('active', active);
+    if (frame.src) frame.contentWindow?.postMessage(
+      active ? 'cosmicx:preview:resume' : 'cosmicx:preview:pause', location.origin);
+  }
 }
 
-function hideBigBangPreview() {
-  const preview = document.getElementById('bigbangPreview');
+function hideModePreview(id) {
+  const preview = document.getElementById(id);
   preview.classList.remove('active');
   preview.contentWindow?.postMessage('cosmicx:preview:pause', location.origin);
 }
@@ -4720,11 +4723,11 @@ function returnToMenu(view = 'modes') {
 // Bang preview is up or any other fade owns the screen).
 function cycleTitleGalaxy() {
   const fade = document.getElementById('fade');
-  if (!titleMode || launching || document.getElementById('bigbangPreview').classList.contains('active') || fade.classList.contains('on')) return;
+  if (!titleMode || document.querySelector('.mode-preview.active') || fade.classList.contains('on')) return;
   fade.classList.add('on');
   setTimeout(() => {
-    if (titleMode && !launching) buildGalaxy((currentGalaxy + 1) % GALAXIES.length);
-    if (!launching) fade.classList.remove('on');   // a mid-dip launch owns the fade now
+    if (titleMode) buildGalaxy((currentGalaxy + 1) % GALAXIES.length);
+    fade.classList.remove('on');
   }, 520);
 }
 
@@ -4739,7 +4742,7 @@ function setupTitleScreen() {
     navigate('/modes');
   });
   document.getElementById('startBtn').addEventListener('click', () => {
-    if (!titleMode || launching) return;   // re-armed after every menu return
+    if (!titleMode) return;   // re-armed after every menu return
     if (!routeActivation && CONFIG.displayMode === 'fullscreen' && !document.fullscreenElement) {
       if (document.fullscreenEnabled) {
         document.documentElement.requestFullscreen()
@@ -4748,7 +4751,8 @@ function setupTitleScreen() {
         toast('Fullscreen unavailable — continuing in this window');
       }
     }
-    hideBigBangPreview();
+    hideModePreview('bigbangPreview');
+    hideModePreview('creatorPreview');
     const launch = () => {
       titleMode = false;
       const titleEl = document.getElementById('title');
@@ -4770,31 +4774,15 @@ function setupTitleScreen() {
       }, CONFIG.introDur * 1000 - 500);
     };
     if (!routeActivation) replaceRoute('/solar-system');
-    if (currentGalaxy !== 0) {
-      // the title tour drifted elsewhere: the Creator always starts in the
-      // Milky Way, so rebuild it under a black dip ahead of the intro flight
-      launching = true;
-      const fade = document.getElementById('fade');
-      fade.classList.add('on');
-      setTimeout(() => {
-        buildGalaxy(0);
-        launch();
-        fade.classList.remove('on');
-        launching = false;
-      }, 520);
-    } else {
-      launch();
-    }
+    launch();
   });
   // Galaxy creation mode is its own page; fade to black, then navigate
   document.getElementById('creatorBtn').addEventListener('click', () => {
-    if (launching) return;
     document.getElementById('fade').classList.add('on');
     setTimeout(() => navigate('/creator'), 520);
   });
   // Big Bang mode is its own page; fade to black, then navigate
   document.getElementById('bigbangBtn').addEventListener('click', () => {
-    if (launching) return;
     document.getElementById('fade').classList.add('on');
     setTimeout(() => navigate('/big-bang'), 520);
   });
@@ -4814,7 +4802,8 @@ function setupTitleScreen() {
   };
   const DEFAULT_HERO = ['CosmicX', 'A live model of our cosmic neighborhood'];
   document.getElementById('titleBackBtn').addEventListener('click', () => {
-    hideBigBangPreview();
+    hideModePreview('bigbangPreview');
+    hideModePreview('creatorPreview');
     setMenuTitle(...DEFAULT_HERO);
     title.classList.remove('modes');
     navigate('/');
@@ -4833,10 +4822,14 @@ function setupTitleScreen() {
   grid.addEventListener('focusout', (event) => {
     if (!grid.contains(event.relatedTarget)) setMenuTitle(...DEFAULT_HERO);
   });
-  // hover and keyboard focus reveal the actual Big Bang title scene
-  const bb = document.getElementById('bigbangBtn');
-  for (const on of ['mouseenter', 'focus']) bb.addEventListener(on, showBigBangPreview);
-  for (const off of ['mouseleave', 'blur']) bb.addEventListener(off, hideBigBangPreview);
+  // hover and keyboard focus reveal the actual mode scene
+  for (const [buttonId, previewId] of [
+    ['creatorBtn', 'creatorPreview'], ['bigbangBtn', 'bigbangPreview'],
+  ]) {
+    const card = document.getElementById(buttonId);
+    for (const on of ['mouseenter', 'focus']) card.addEventListener(on, () => showModePreview(previewId));
+    for (const off of ['mouseleave', 'blur']) card.addEventListener(off, () => hideModePreview(previewId));
+  }
   // sandbox -> menu without a reload; the href stays as a no-JS fallback
   document.getElementById('simBackLink').addEventListener('click', event => {
     event.preventDefault();
@@ -5407,7 +5400,8 @@ function setView(view) {
     returnToMenu(view);
     return;
   }
-  hideBigBangPreview();
+  hideModePreview('bigbangPreview');
+  hideModePreview('creatorPreview');
   title.inert = false;
   title.classList.remove('hidden');
   title.classList.toggle('modes', view === 'modes');

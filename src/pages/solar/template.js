@@ -129,8 +129,10 @@ export function solarTemplate() {
   </div>
 </dialog>
 
-<iframe id="bigbangPreview" data-src="?preview=1#/big-bang"
+<iframe id="bigbangPreview" class="mode-preview" data-src="?preview=1#/big-bang"
   title="Animated Big Bang preview" aria-hidden="true" tabindex="-1"></iframe>
+<iframe id="creatorPreview" class="mode-preview" data-src="?preview=1#/creator"
+  title="Animated Creator galaxy preview" aria-hidden="true" tabindex="-1"></iframe>
 
 <!-- Title screen -->
 <div id="title">

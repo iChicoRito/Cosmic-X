@@ -42,6 +42,7 @@ let onboardingTour = null;
 const { BloomClampShader, LensingShader } = createPostprocessingShaders(THREE);
 const $ = id => document.getElementById(id);
 const TAU = Math.PI * 2;
+const previewMode = document.documentElement.classList.contains('preview');
 
 /* ================================================================
    STATE
@@ -1004,7 +1005,7 @@ function buildTransport() {
     btn.type = 'button';
     btn.className = 'cr-speed';
     btn.dataset.idx = idx;
-    btn.textContent = idx === 0 ? '▶ ×1' : speedLabel(mult);
+    btn.textContent = speedLabel(mult);
     btn.title = idx === 0 ? 'Play' : `Play at ${speedLabel(mult)}`;
     btn.addEventListener('click', () => {
       state.sim.speedIdx = idx;
@@ -1152,6 +1153,7 @@ function finalizeGalaxy() {
 }
 
 function startCreatorOnboarding() {
+  if (previewMode) return;
   if (onboardingTour) return;
   let wasPlaying = false;
   let panelCollapsed = false;
@@ -1826,7 +1828,7 @@ function refreshSlots() {
     const delBtn = document.createElement('button');
     delBtn.type = 'button';
     delBtn.className = 'cr-btn small danger';
-    delBtn.textContent = '✕';
+    delBtn.textContent = 'Delete';
     delBtn.title = 'Delete save';
     delBtn.addEventListener('click', () => {
       store.remove(slot.name);
@@ -2777,8 +2779,21 @@ function renderFrame() {
 buildBackdropStars();
 setupUI();
 controls.target.set(0, 0, -80);
-spawnGuestGalaxy();
-scope.setInterval(spawnGuestGalaxy, 7000);
+if (previewMode) {
+  const latest = store.listSlots()[0];
+  const saved = latest ? store.load(latest.name) : null;
+  if (saved) {
+    applyState(saved);
+  } else {
+    state.params = defaultParams('spiral');
+    state.stats = createStats(state.params);
+    rebuildGalaxy(state.params);
+  }
+}
+if (!previewMode) {
+  spawnGuestGalaxy();
+  scope.setInterval(spawnGuestGalaxy, 7000);
+}
 animate();
 
 // Deep link straight to a stellar system (/#/creator/{slug}). Deferred one tick

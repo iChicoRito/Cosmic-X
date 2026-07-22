@@ -281,7 +281,27 @@ test('the screenshot uses a synchronous canvas capture, not an async API', () =>
 test('creator styles reuse the shared glass tokens and hide chrome in preview', () => {
   assert.match(css, /--glass-bg:\s*rgba\(0,\s*0,\s*0,\s*0\.60\)/);
   assert.match(css, /--font-display:\s*'Space Grotesk'/);
-  assert.match(css, /\.preview[^{]*#crHud/);
+  assert.match(css, /\.preview[^{]*#crTitle[^{]*#crHud/);
+});
+
+test('creator preview restores the newest save or renders an empty default galaxy', () => {
+  assert.match(runtime, /const\s+previewMode\s*=\s*document\.documentElement\.classList\.contains\(\s*['"]preview['"]\s*\)/);
+  assert.match(runtime, /if\s*\(previewMode\)[\s\S]*?store\.listSlots\(\)\[0\]/);
+  assert.match(runtime, /store\.load\(latest\.name\)/);
+  assert.match(runtime, /if\s*\(saved\)[\s\S]*?applyState\(saved\)/);
+  assert.match(runtime, /else\s*\{[\s\S]*?defaultParams\(\s*['"]spiral['"]\s*\)[\s\S]*?rebuildGalaxy\(state\.params\)/);
+  assert.match(runtime, /if\s*\(!previewMode\)[\s\S]*?spawnGuestGalaxy\(\)/);
+  assert.match(runtime, /function\s+startCreatorOnboarding\(\)\s*\{\s*if\s*\(previewMode\)\s*return/);
+});
+
+test('creator controls use text instead of decorative emoji-style glyphs', () => {
+  assert.doesNotMatch(template, /&#(?:10227|10022|128247);/);
+  assert.match(template, /id="crSeedBtn"[^>]*>Reroll Seed<\/button>/);
+  assert.match(template, /id="crGenerateBtn"[^>]*>Create Galaxy<\/button>/);
+  assert.match(template, /id="crShotBtn"[^>]*>Screenshot<\/button>/);
+  assert.doesNotMatch(runtime, /[▶✕]/u);
+  assert.match(runtime, /btn\.textContent\s*=\s*speedLabel\(mult\)/);
+  assert.match(runtime, /delBtn\.textContent\s*=\s*['"]Delete['"]/);
 });
 
 test('page injects a route-scoped stylesheet and delegates to the runtime', () => {

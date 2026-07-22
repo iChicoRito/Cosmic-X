@@ -1016,27 +1016,41 @@ test('flies the camera home when the user exits the info panel', () => {
   assert.match(html, /if \(infoTarget\) exitInfoPanel\(\)/);
 });
 
-test('lazily previews the real Big Bang title scene on hover and keyboard focus', () => {
-  assertAttributes(startTagById('bigbangPreview'), {
-    'data-src': /\?preview=1#\/big-bang/,
-    'aria-hidden': /true/,
-    tabindex: /-1/,
-  });
-  const styles = section('<style>', '</style>');
-  assert.match(styles, /#bigbangPreview\s*\{[^}]*pointer-events:\s*none[^}]*opacity:\s*0/s);
-  assert.match(styles, /#bigbangPreview\.active\s*\{[^}]*opacity:\s*1/s);
+test('starts As the Gods Will in the galaxy already shown behind mode selection', () => {
+  const titleScreen = functionSource('setupTitleScreen');
+  assert.doesNotMatch(titleScreen, /buildGalaxy\(\s*0\s*\)/);
+  assert.doesNotMatch(titleScreen, /currentGalaxy\s*!==\s*0/);
+  assert.match(runtime, /buildGalaxy\(0\);\s*setupPicking\(\)/, 'direct Solar boot still defaults to Milky Way');
+});
 
-  const show = functionSource('showBigBangPreview');
+test('lazily previews the real Big Bang and Creator scenes on hover and keyboard focus', () => {
+  for (const [id, route] of [['bigbangPreview', 'big-bang'], ['creatorPreview', 'creator']]) {
+    assertAttributes(startTagById(id), {
+      class: /mode-preview/,
+      'data-src': new RegExp(`\\?preview=1#\\/${route}`),
+      'aria-hidden': /true/,
+      tabindex: /-1/,
+    });
+  }
+  const styles = section('<style>', '</style>');
+  assert.match(styles, /\.mode-preview\s*\{[^}]*pointer-events:\s*none[^}]*opacity:\s*0/s);
+  assert.match(styles, /\.mode-preview\.active\s*\{[^}]*opacity:\s*1/s);
+
+  const show = functionSource('showModePreview');
   assert.match(show, /\.dataset\.src/);
   assert.match(show, /\.src\s*=/);
-  assert.match(show, /classList\.add\(\s*['"]active['"]/);
-  assert.match(functionSource('hideBigBangPreview'), /classList\.remove\(\s*['"]active['"]/);
+  assert.match(show, /querySelectorAll\(\s*['"]\.mode-preview['"]\s*\)/);
+  assert.match(show, /classList\.toggle\(\s*['"]active['"]/);
+  assert.match(show, /cosmicx:preview:resume/);
+  assert.match(show, /cosmicx:preview:pause/);
+  assert.match(functionSource('hideModePreview'), /classList\.remove\(\s*['"]active['"]/);
 
   const titleScreen = functionSource('setupTitleScreen');
-  assert.match(titleScreen, /mouseenter[\s\S]*showBigBangPreview/);
-  assert.match(titleScreen, /focus[\s\S]*showBigBangPreview/);
-  assert.match(titleScreen, /mouseleave[\s\S]*hideBigBangPreview/);
-  assert.match(titleScreen, /blur[\s\S]*hideBigBangPreview/);
+  for (const [buttonId, previewId] of [['bigbangBtn', 'bigbangPreview'], ['creatorBtn', 'creatorPreview']]) {
+    assert.match(titleScreen, new RegExp(`\\[['"]${buttonId}['"],\\s*['"]${previewId}['"]\\]`));
+  }
+  assert.match(titleScreen, /\['mouseenter',\s*'focus'\][\s\S]*showModePreview\(previewId\)/);
+  assert.match(titleScreen, /\['mouseleave',\s*'blur'\][\s\S]*hideModePreview\(previewId\)/);
   assert.doesNotMatch(html, /function\s+buildTitlePreview\s*\(/);
   assert.doesNotMatch(html, /function\s+updateTitlePreview\s*\(/);
 });
@@ -1105,6 +1119,14 @@ test('exposes accessible Wormhole-only physics controls in the Sim tab', () => {
   for (const id of ['wormholePull', 'wormholeThroat', 'wormholeExitVelocity']) {
     assert.match(startTagById(id, template), /aria-label=/);
   }
+});
+
+test('keeps the Wormhole physics controls on the Sim tab vertical rhythm', () => {
+  const styles = section('<style>', '</style>');
+  assert.match(
+    styles,
+    /#wormholeControls\s*\{[^}]*display:\s*flex[^}]*flex-direction:\s*column[^}]*gap:\s*13px/,
+  );
 });
 
 test('integrates Wormhole visuals, physics, teleportation, and lifecycle without changing black holes', () => {

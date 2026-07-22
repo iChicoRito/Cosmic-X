@@ -389,10 +389,13 @@ test('persistence: round-trip, sanitization and slot store', () => {
   const store = createStore(storage);
   assert.deepEqual(store.listSlots(), []);
   assert.ok(store.save('slot one', state));
-  assert.equal(store.listSlots()[0].galaxyName, 'Halo of Fire');
+  assert.ok(store.save('newest slot', { ...state, savedAt: state.savedAt + 1000, params: { ...state.params, name: 'Newest Galaxy' } }));
+  assert.equal(store.listSlots()[0].name, 'newest slot');
+  assert.equal(store.listSlots()[0].galaxyName, 'Newest Galaxy');
   assert.equal(store.load('slot one').params.seed, 99);
   assert.equal(store.load('missing'), null);
   store.remove('slot one');
+  store.remove('newest slot');
   assert.deepEqual(store.listSlots(), []);
 
   const broken = createStore({ getItem: () => { throw new Error('nope'); }, setItem: () => { throw new Error('nope'); } });

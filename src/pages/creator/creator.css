@@ -533,7 +533,7 @@ canvas.cr-canvas { position: fixed; inset: 0; display: block; }
 body.cr-ui-hidden #crHud, body.cr-ui-hidden #creatorBackLink { opacity: 0; pointer-events: none; }
 #crHud > *, #creatorBackLink { transition: opacity 0.35s ease; }
 
-.preview #creatorBackLink, .preview #crTitle .cr-title-actions,
+.preview #creatorBackLink, .preview #crTitle,
 .preview #crHud, .preview #crToasts { display: none; }
 
 @media (max-width: 820px) {
