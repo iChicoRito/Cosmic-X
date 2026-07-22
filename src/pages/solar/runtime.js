@@ -3,7 +3,7 @@ import { fbm, hash2, makeCanvas, tileFbm, valueNoise } from '../../shared/proced
 import { paintRangeFill } from '../../shared/range.js';
 import { createSolarConfig, GM_SUN, QUALITY, TEX_BASE } from './config.js';
 import { createSolarData } from './data.js';
-import { closestApproach } from './dynamics.js';
+import { closestApproach, wormholeTransit } from './dynamics.js';
 import { pickZodiac } from './zodiac.js';
 import { createCameraMetadata } from './camera.js';
 import { createSolarSettings } from './settings.js';
@@ -887,6 +887,7 @@ const DISTANT_GALAXY_POSES = [
   { dir: [-0.72, 0.22, 0.66], tint: 0xbcd0ff },   // Andromeda
   { dir: [0.28, -0.30, 0.91], tint: 0xffd9a8 },   // Messier 87
   { dir: [-0.30, -0.34, -0.89], tint: 0xa8e8de }, // Triangulum
+  { dir: [0.68, -0.25, -0.69], tint: 0xb88cff },   // Wormhole Galaxy
 ];
 
 function buildDistantGalaxies() {
@@ -1542,6 +1543,7 @@ function updateMeteorEntry(body, dt) {
 const uiParams = {
   astSize: 1, astMass: 2, astVel: 0.8,
   bhMass: 800,
+  wormholePull: 1, wormholeThroat: 1, wormholeExitVelocity: 1,
   impSpeed: 2.5, impAngle: 0, impMass: 10, impSize: 1.5, lockOn: false,
   cometA: 140, cometE: 0.85, cometColor: 'blue',
   laserWidth: 0.4, laserPower: 120, laserDuration: 0.8, laserDestructive: true,
@@ -2321,18 +2323,23 @@ function removeBody(body) {
    BLACK HOLE
    ================================================================ */
 
-function accretionDiskMaterial(inner, outer) {
+function accretionDiskMaterial(inner, outer, palette = null) {
+  const hot = palette?.hot || new THREE.Color().setRGB(1, 0.92, 0.75);
+  const cool = palette?.cool || new THREE.Color().setRGB(0.95, 0.4, 0.12);
   return new THREE.ShaderMaterial({
     uniforms: {
       uTime: { value: 0 },
       uInner: { value: inner },
       uOuter: { value: outer },
+      uHot: { value: hot },
+      uCool: { value: cool },
     },
     vertexShader: `
       varying vec2 vP;
       void main() { vP = position.xy; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
     fragmentShader: `
       uniform float uTime; uniform float uInner; uniform float uOuter;
+      uniform vec3 uHot; uniform vec3 uCool;
       varying vec2 vP;
       void main() {
         float r = length(vP);
@@ -2345,9 +2352,7 @@ function accretionDiskMaterial(inner, outer) {
         float inner = pow(1.0 - t, 2.2);
         // relativistic beaming: the approaching side glows hotter
         float doppler = 1.0 + 0.55 * sin(ang - uTime * 0.15);
-        vec3 hot = vec3(1.0, 0.92, 0.75);
-        vec3 cool = vec3(0.95, 0.4, 0.12);
-        vec3 col = mix(cool, hot, inner) * streak * doppler * (1.5 * inner + 0.22);
+        vec3 col = mix(uCool, uHot, inner) * streak * doppler * (1.5 * inner + 0.22);
         float edge = smoothstep(0.0, 0.08, t) * (1.0 - smoothstep(0.82, 1.0, t));
         gl_FragColor = vec4(col, edge * min(1.0, streak));
       }`,
@@ -2403,6 +2408,105 @@ function spawnBlackHole(massSuns, position) {
   byMesh.set(horizon, record);
   camTargetsDirty = true;
   return bh;
+}
+
+function spawnWormhole(definition, position) {
+  const baseHorizonR = definition.throatRadius;
+  const group = new THREE.Group();
+  group.position.copy(position || new THREE.Vector3());
+
+  const horizon = new THREE.Mesh(
+    new THREE.SphereGeometry(baseHorizonR, 48, 24),
+    new THREE.MeshBasicMaterial({ color: 0x010006 }),
+  );
+  group.add(horizon);
+
+  const photon = new THREE.Mesh(
+    new THREE.TorusGeometry(baseHorizonR * 1.12, baseHorizonR * 0.055, 10, 112),
+    new THREE.MeshBasicMaterial({ color: new THREE.Color().setRGB(0.55, 1.25, 1.8) }),
+  );
+  photon.rotation.x = Math.PI / 2 - 0.42;
+  group.add(photon);
+
+  const disk = new THREE.Mesh(
+    new THREE.RingGeometry(baseHorizonR * 1.25, baseHorizonR * 4.8, 112, 1),
+    accretionDiskMaterial(baseHorizonR * 1.25, baseHorizonR * 4.8, {
+      hot: new THREE.Color().setRGB(0.45, 1.2, 1.65),
+      cool: new THREE.Color().setRGB(0.62, 0.16, 1.05),
+    }),
+  );
+  disk.rotation.x = Math.PI / 2 - 0.42;
+  group.add(disk);
+
+  const ringColors = [0x79efff, 0xb46cff, 0x55b7ff];
+  const rings = ringColors.map((color, index) => {
+    const ring = new THREE.Mesh(
+      new THREE.TorusGeometry(baseHorizonR * (1.38 + index * 0.34), baseHorizonR * 0.025, 8, 96),
+      new THREE.MeshBasicMaterial({
+        color, transparent: true, opacity: 0.55 - index * 0.1,
+        blending: THREE.AdditiveBlending, depthWrite: false,
+      }),
+    );
+    ring.rotation.set(Math.PI / 2 - 0.42 + index * 0.18, index * 0.35, index * 0.22);
+    group.add(ring);
+    return ring;
+  });
+
+  const funnelCount = Math.floor(700 * density());
+  const funnelPositions = new Float32Array(funnelCount * 3);
+  for (let i = 0; i < funnelCount; i++) {
+    const u = Math.random() * 2 - 1;
+    const radius = baseHorizonR * (1.35 + Math.abs(u) * 3.1);
+    const angle = Math.random() * Math.PI * 2 + u * 4;
+    funnelPositions[i * 3] = Math.cos(angle) * radius;
+    funnelPositions[i * 3 + 1] = u * baseHorizonR * 3.5;
+    funnelPositions[i * 3 + 2] = Math.sin(angle) * radius;
+  }
+  const funnelGeometry = new THREE.BufferGeometry();
+  funnelGeometry.setAttribute('position', new THREE.BufferAttribute(funnelPositions, 3));
+  const funnel = new THREE.Points(funnelGeometry, new THREE.PointsMaterial({
+    map: createPointSpriteTexture(), color: 0x9defff, size: 1.35,
+    transparent: true, opacity: 0.58, blending: THREE.AdditiveBlending,
+    depthWrite: false, sizeAttenuation: true,
+  }));
+  group.add(funnel);
+
+  const light = new THREE.PointLight(0x8d70ff, 3.2, 700, 1.15);
+  group.add(light);
+  group.add(makeLabel('Wormhole', baseHorizonR + 9));
+  galaxyGroup.add(group);
+
+  const baseGM = definition.mass * GM_SUN * 0.02;
+  const bh = {
+    mesh: group, disk, photon, rings, funnel,
+    horizonR: baseHorizonR, baseHorizonR,
+    GM: baseGM, baseGM, massSuns: definition.mass,
+    exitVelocity: uiParams.wormholeExitVelocity,
+    isWormhole: true,
+  };
+  blackHoles.push(bh);
+  for (const rec of planets) if (!rec.destroyed) makeDynamic(rec);
+
+  pickTargets.push(horizon);
+  const record = {
+    name: 'Wormhole', isBH: true, isWormhole: true,
+    anchor: group, geoR: baseHorizonR, visible: true, bh,
+  };
+  bh.record = record;
+  byMesh.set(horizon, record);
+  camTargetsDirty = true;
+  applyWormholePhysics();
+  return bh;
+}
+
+function applyWormholePhysics() {
+  const wormhole = blackHoles.find(bh => bh.isWormhole);
+  if (!wormhole) return;
+  wormhole.GM = wormhole.baseGM * uiParams.wormholePull;
+  wormhole.horizonR = wormhole.baseHorizonR * uiParams.wormholeThroat;
+  wormhole.exitVelocity = uiParams.wormholeExitVelocity;
+  wormhole.mesh.scale.setScalar(uiParams.wormholeThroat);
+  wormhole.record.geoR = wormhole.horizonR;
 }
 
 function swallow(objPos, radius, onDone) {
@@ -2487,14 +2591,18 @@ function buildGalaxy(index) {
   // resident near-Earth objects: opt-in via the Sim tab toggle
   if (index === 0 && CONFIG.autoNEAs) for (let i = 0; i < 5; i++) spawnNEA();
 
-  if (g.blackHole) {
-    const bh = spawnBlackHole(g.blackHole.mass, new THREE.Vector3(0, 0, 0));
-    // captive planets get near-circular starting orbits around the hole
+  const residentSingularity = g.blackHole
+    ? spawnBlackHole(g.blackHole.mass, new THREE.Vector3(0, 0, 0))
+    : g.wormhole
+      ? spawnWormhole(g.wormhole, new THREE.Vector3(0, 0, 0))
+      : null;
+  if (residentSingularity) {
+    // captive planets get near-circular starting orbits around the resident singularity
     for (const rec of planets) {
       const r = scaledDist(rec.def.au);
       const ang = rec.theta0;
       rec.anchor.position.set(Math.cos(ang) * r, 0, Math.sin(ang) * r);
-      const vMag = Math.sqrt(bh.GM / r);
+      const vMag = Math.sqrt(residentSingularity.GM / r);
       rec.vel.set(-Math.sin(ang), 0, Math.cos(ang)).multiplyScalar(vMag);
       rec.mode = 'dynamic';
     }
@@ -2992,6 +3100,7 @@ function selectionKeyFor(record) {
   if (record.isSun) return 'star';
   if (record.isMoon && record.host) return 'moon:' + record.host.def.name + '/' + record.def.name;
   if (record.def?.name) return 'planet:' + record.def.name;
+  if (record.isWormhole && record.bh === blackHoles[0]) return 'wormhole:resident';
   if (record.isBH && GALAXIES[currentGalaxy].blackHole && record.bh === blackHoles[0]) return 'black-hole:resident';
   return null;
 }
@@ -3048,7 +3157,7 @@ function buildObjectSummary(record, galaxy = GALAXIES[currentGalaxy]) {
     const profile = galaxy.star ? STAR_SUMMARY_PROFILES[galaxy.starProfile] : null;
     const outer = galaxy.planets[galaxy.planets.length - 1];
     const planetTemps = galaxy.planets.map(def => factsFor(def, !!galaxy.star).tempC);
-    mass = profile ? profile.massSolar * 1.98847e30 : (galaxy.blackHole?.mass || 0) * 1.98847e30;
+    mass = profile ? profile.massSolar * 1.98847e30 : (galaxy.blackHole?.mass || galaxy.wormhole?.mass || 0) * 1.98847e30;
     radius = outer ? scaledDist(outer.au) : 0;
     radiusUnit = 'scene u';
     orbitalPeriod = outer?.periodDays || 0;
@@ -3075,13 +3184,27 @@ function buildObjectSummary(record, galaxy = GALAXIES[currentGalaxy]) {
     if (galaxy === GALAXIES[0]) factQualifier = 'measured reference';
   } else if (record.isGalaxy) {
     const g = GALAXIES[record.galaxyIndex];
-    mass = (g.blackHole?.mass || 1e11) * 1.98847e30;
+    mass = (g.blackHole?.mass || g.wormhole?.mass || 1e11) * 1.98847e30;
     radius = 1500;
     radiusUnit = 'scene u';
     source = g.desc;
     status = g.type + ' · ' + g.stars;
     velocity = 0;
     orbitalSpeed = 0;
+  } else if (record.isWormhole) {
+    const massSolar = record.bh?.massSuns || 0;
+    mass = massSolar * 1.98847e30;
+    radius = record.bh?.horizonR || 0;
+    radiusUnit = 'scene u';
+    velocity = uiParams.wormholeExitVelocity;
+    orbitalSpeed = velocity;
+    gravity = uiParams.wormholePull;
+    units.velocity = '× input velocity';
+    units.orbitalSpeed = '× input velocity';
+    units.gravity = '× base pull';
+    parentDistance = position.length();
+    source = 'Fictional wormhole simulator model';
+    status = 'Traversable · Throat ' + radius.toFixed(2) + ' u';
   } else if (record.isBH) {
     const massSolar = record.bh?.massSuns || 0;
     mass = massSolar * 1.98847e30;
@@ -3290,6 +3413,7 @@ function bodyTypeLabel(record) {
   if (record.isConstellation) return 'Zodiac constellation';
   if (record.isGalaxy) return 'Galaxy';
   if (record.isSun) return 'Star';
+  if (record.isWormhole) return 'Wormhole';
   if (record.isBH) return 'Black hole';
   if (record.isMoon) return 'Natural satellite';
   if (record.kind === 'comet') return 'Comet';
@@ -3406,6 +3530,13 @@ function openInfoPanel(record) {
       flyTo(record.host);
       openInfoPanel(record.host);
     });
+  } else if (record.isWormhole) {
+    body.innerHTML = '<div class="stat-grid">'
+      + stat('Gravitational pull', uiParams.wormholePull.toFixed(2) + '×')
+      + stat('Throat size', (record.bh?.horizonR || 0).toFixed(2) + ' scene units')
+      + stat('Exit velocity', uiParams.wormholeExitVelocity.toFixed(2) + '× input speed')
+      + stat('Modeled mass', (record.bh?.massSuns || 0).toLocaleString() + ' suns')
+      + '</div><div class="note">Fictional traversable wormhole simulator model. Bodies emerge beyond the opposite side of the throat.</div>';
   } else if (record.kind === 'asteroid' || record.kind === 'comet') {
     const comet = record.kind === 'comet';
     const mining = record.mining
@@ -3433,6 +3564,7 @@ function openInfoPanel(record) {
       + stat('Stars', g.stars)
       + stat('Worlds modeled', String(g.planets.length))
       + stat('Resident black hole', g.blackHole ? 'Yes' : 'No')
+      + (g.wormhole ? stat('Resident wormhole', 'Yes') : '')
       + '</div><div class="note">' + g.desc + '</div>'
       + '<button class="btn accent" id="travelGalaxy">Travel to ' + g.name + '</button>';
     ui('travelGalaxy').addEventListener('click', () => {
@@ -3919,6 +4051,7 @@ function refreshGalaxyInfo() {
     '<b>' + g.name + '</b> — ' + g.type + ' · ' + g.stars + '<br>' + g.desc;
   [...document.querySelectorAll('.galaxy-card')].forEach((el, i) =>
     el.classList.toggle('active', i === currentGalaxy));
+  ui('wormholeControls').hidden = !g.wormhole;
 }
 
 function applyCameraSettings() {
@@ -4118,6 +4251,9 @@ function setupUI() {
   });
   setTimeScale(CONFIG.timeScale);
   bindSlider('gravity', 'gravityVal', CONFIG, 'gravityMult', v => v.toFixed(1) + '×');
+  bindSlider('wormholePull', 'wormholePullVal', uiParams, 'wormholePull', v => v.toFixed(2) + '×', applyWormholePhysics);
+  bindSlider('wormholeThroat', 'wormholeThroatVal', uiParams, 'wormholeThroat', v => v.toFixed(2) + '×', applyWormholePhysics);
+  bindSlider('wormholeExitVelocity', 'wormholeExitVelocityVal', uiParams, 'wormholeExitVelocity', v => v.toFixed(2) + '×', applyWormholePhysics);
   bindSlider('size', 'sizeVal', CONFIG, 'planetScale', v => v.toFixed(2) + '×', applyPlanetScale);
   bindSlider('dist', 'distVal', CONFIG, 'distanceScale', v => v.toFixed(0), applyDistanceScale);
   bindSwitch('trails', CONFIG, 'showTrails', v => trailsGroup.visible = v);
@@ -4394,8 +4530,8 @@ function clearSpawned() {
   }
   for (const b of dynBodies) removeBody(b);
   dynBodies = [];
-  // remove spawned holes (galaxy-resident hole in M87 stays)
-  const resident = GALAXIES[currentGalaxy].blackHole;
+  // remove spawned holes; resident black holes and wormholes stay
+  const resident = GALAXIES[currentGalaxy].blackHole || GALAXIES[currentGalaxy].wormhole;
   blackHoles = blackHoles.filter((bh, i) => {
     const keep = resident && i === 0;
     if (!keep) {
@@ -4719,12 +4855,37 @@ const bhScreen = new THREE.Vector3();
 let systemUpdateTimer = 0;
 let warningUpdateTimer = 0;
 let shootingStarTimer = 3;
+const wormholePreviousPosition = new THREE.Vector3();
+
+function teleportBodyThroughWormhole(body, previousPosition) {
+  const wormhole = blackHoles.find(bh => bh.isWormhole);
+  const position = body.anchor?.position || body.mesh?.position;
+  if (!wormhole || !position || !body.vel) return false;
+  const transit = wormholeTransit(
+    previousPosition,
+    position,
+    body.vel,
+    wormhole.horizonR,
+    wormhole.horizonR * 2.5,
+    wormhole.exitVelocity,
+  );
+  if (!transit) return false;
+
+  const entry = position.clone();
+  position.set(transit.position.x, transit.position.y, transit.position.z);
+  body.vel.set(transit.velocity.x, transit.velocity.y, transit.velocity.z);
+  spawnExplosion(entry, 0.35, '#79efff');
+  spawnExplosion(position.clone(), 0.45, '#b46cff');
+  return true;
+}
 
 function updateDynamics(dDays, dt) {
   // free bodies
   for (const body of dynBodies) {
     if (!body.alive) continue;
+    wormholePreviousPosition.copy(body.mesh.position);
     integrate(body.mesh.position, body.vel, dDays);
+    teleportBodyThroughWormhole(body, wormholePreviousPosition);
     // ponytail: gentle homing, opt-in via Lock-on — sun gravity bends slow
     // shots off the lead point otherwise; real ballistics would need a Lambert solver
     if (body.homing && body.target && !body.target.destroyed) {
@@ -4786,6 +4947,7 @@ function updateDynamics(dDays, dt) {
       const p = body.mesh.position;
       if (sunRec && p.length() < sunRec.geoR + body.radius) { spawnExplosion(p.clone(), 1); removeBody(body); continue; }
       for (const bh of blackHoles) {
+        if (bh.isWormhole) continue;
         if (p.distanceTo(bh.mesh.position) < bh.horizonR * 1.05) { removeBody(body); break; }
       }
       if (!body.alive) continue;
@@ -4811,8 +4973,11 @@ function updateDynamics(dDays, dt) {
   // dynamic planets (post-black-hole physics)
   for (const rec of planets) {
     if (rec.mode !== 'dynamic' || rec.destroyed || !rec.visible) continue;
+    wormholePreviousPosition.copy(rec.anchor.position);
     integrate(rec.anchor.position, rec.vel, dDays);
+    teleportBodyThroughWormhole(rec, wormholePreviousPosition);
     for (const bh of blackHoles) {
+      if (bh.isWormhole) continue;
       if (rec.anchor.position.distanceTo(bh.mesh.position) < bh.horizonR + rec.geoR * CONFIG.planetScale * 0.5) {
         // consumed by the hole
         spawnExplosion(rec.anchor.position.clone(), 2);
@@ -4974,6 +5139,13 @@ function update(dt) {
   for (const bh of blackHoles) {
     bh.disk.material.uniforms.uTime.value = t;
     bh.disk.rotation.z = simDays * .05;
+    if (bh.isWormhole) {
+      bh.rings.forEach((ring, index) => {
+        ring.rotation.z += dt * (0.18 + index * 0.08) * (index % 2 ? -1 : 1);
+      });
+      bh.funnel.rotation.y -= dt * 0.18;
+      bh.photon.rotation.z += dt * 0.35;
+    }
   }
   if (dustField && dDays >= 0) dustField.rotation.y += dt * 0.004;
 
@@ -5089,6 +5261,9 @@ function runSelfCheck() {
     'barSpeedDown', 'barSpeedUp', 'timelineReset', 'timelinePresent',
     'timelineScrubber', 'timelineDetails', 'timelineDetailsPanel',
     'laserTarget', 'cursorLaserMode', 'fireLaser',
+    'wormholeControls', 'wormholePull', 'wormholePullVal',
+    'wormholeThroat', 'wormholeThroatVal',
+    'wormholeExitVelocity', 'wormholeExitVelocityVal',
   ];
   checks.dom = requiredDomIds.every(id => !!document.getElementById(id));
   checks.settings = CONFIG.displayMode === 'windowed' || CONFIG.displayMode === 'fullscreen';
@@ -5121,6 +5296,9 @@ function runSelfCheck() {
         );
     })
   );
+  checks.wormhole = GALAXIES.length === 5
+    && GALAXIES[4]?.wormhole?.mass === 1800
+    && GALAXIES[4]?.wormhole?.throatRadius === 18;
 
   const expectedTargets = [];
   if (isCameraTargetLive(sunRec)) expectedTargets.push(sunRec);
@@ -5170,7 +5348,7 @@ function runSelfCheck() {
   checks.integrations = [
     toast, toastOnce, openInfoPanel, closeInfoPanel,
     refreshCameraTargets, setCameraMode, updateCameraMode,
-    closestApproach, updateImpactWarnings,
+    closestApproach, wormholeTransit, teleportBodyThroughWormhole, applyWormholePhysics, updateImpactWarnings,
     checkEclipses, updateTrojans, checkMajorCollisions,
     setPlayback, setTimeScale, seekSimulationTime, rebuildSimulationAt,
     applyBaselinePose, selectRecord, restoreSelection,

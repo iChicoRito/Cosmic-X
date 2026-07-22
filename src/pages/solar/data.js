@@ -34,8 +34,8 @@ const M87_PLANETS = [
   { name: 'Acheron', au: 13,  e: 0, periodDays: 554.1, radiusE: 5.2,  tex: 'gas',   colors: ['#8a2a3a', '#5a1522', '#d06a7a'], trail: '#d07a8a', rotHours: 13, tiltDeg: 35, atmo: { color: '#ff6a7a', intensity: 0.45 }, ring: { inner: 1.4, outer: 2.2 } },
 ];
 
-// Deterministic PRNG so the Triangulum system is identical on every load
-// (and assertable in tests) while still reading as "procedurally generated".
+// Deterministic PRNG so generated systems are identical on every load and
+// assertable in tests while still reading as procedurally generated.
 function mulberry32(seed) {
   let a = seed >>> 0;
   return () => {
@@ -107,6 +107,7 @@ function generateSystem(seed, prefix, count) {
 }
 
 const TRIANGULUM_PLANETS = generateSystem(33, 'M33', 5);
+const WORMHOLE_PLANETS = generateSystem(22022, 'Nexus', 5);
 
 const GALAXIES = [
   {
@@ -141,6 +142,13 @@ const GALAXIES = [
     nebulas: [['#2a8a9a', 0.18], ['#3ab8c8', 0.13], ['#a83a8a', 0.12]],
     spiral: { arms: 3, rMin: 320, rMax: 1250, pitch: 0.30, tilt: -0.45, color: '#9fe8dc', count: 9000 },
     landmarks: [{ name: 'NGC 604', dir: [0.45, 0.34, 0.83], color: '#ff8fb8', scale: 300, seed: 604 }],
+  },
+  {
+    name: 'Wormhole Galaxy', type: 'Fictional traversable wormhole', stars: 'Uncharted star field',
+    desc: 'A fictional violet-cyan star field organized around a massive traversable wormhole. Five Nexus worlds orbit its shifting throat.',
+    planets: WORMHOLE_PLANETS, star: null, wormhole: { mass: 1800, throatRadius: 18 },
+    belt: false, starTint: [0.72, 1.04, 1.28], starDensity: 0.9,
+    nebulas: [['#34208f', 0.2], ['#087d91', 0.16], ['#8a2fa8', 0.13]],
   },
 ];
 

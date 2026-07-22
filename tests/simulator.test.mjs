@@ -1046,7 +1046,7 @@ test('registers Triangulum as a fourth deterministic explorable galaxy', () => {
   const stubQuality = { high: { density: 1 } };
   const { GALAXIES } = createSolarData(stubConfig, stubQuality);
 
-  assert.equal(GALAXIES.length, 4);
+  assert.equal(GALAXIES.length, 5);
   assert.equal(GALAXIES[0].name, 'Milky Way'); // Creator flow depends on index 0
   const tri = GALAXIES[3];
   assert.equal(tri.name, 'Triangulum');
@@ -1067,10 +1067,75 @@ test('registers Triangulum as a fourth deterministic explorable galaxy', () => {
   assert.deepEqual(signature(again.planets), signature(tri.planets));
 
   assert.match(constantSource('STAR_SUMMARY_PROFILES'), /Triangulum/);
-  assert.equal((constantSource('DISTANT_GALAXY_POSES').match(/dir:/g) || []).length, 4);
+  assert.equal((constantSource('DISTANT_GALAXY_POSES').match(/dir:/g) || []).length, 5);
   assert.ok(!runtime.includes("'MilkyWay' : 'Andromeda'"), 'no hard-coded two-galaxy star ternary');
   assert.match(functionSource('buildGalaxy'), /g\.spiral/);
   assert.match(functionSource('buildGalaxy'), /g\.landmarks/);
+});
+
+test('registers Wormhole Galaxy as the fifth isolated sandbox environment', () => {
+  const stubConfig = { distanceScale: 34, distanceExp: 0.55, particleDensity: 1, quality: 'high' };
+  const stubQuality = { high: { density: 1 } };
+  const { GALAXIES } = createSolarData(stubConfig, stubQuality);
+  const wormhole = GALAXIES[4];
+
+  assert.equal(GALAXIES[0].name, 'Milky Way');
+  assert.equal(wormhole.name, 'Wormhole Galaxy');
+  assert.equal(wormhole.type, 'Fictional traversable wormhole');
+  assert.equal(wormhole.stars, 'Uncharted star field');
+  assert.deepEqual(wormhole.wormhole, { mass: 1800, throatRadius: 18 });
+  assert.equal(wormhole.star, null);
+  assert.equal(wormhole.belt, false);
+  assert.deepEqual(wormhole.planets.map(planet => planet.name), [
+    'Nexus-I', 'Nexus-II', 'Nexus-III', 'Nexus-IV', 'Nexus-V',
+  ]);
+});
+
+test('exposes accessible Wormhole-only physics controls in the Sim tab', () => {
+  assertAttributes(startTagById('wormholeControls', template), { hidden: null });
+  assertAttributes(startTagById('wormholePull', template), {
+    type: /range/, min: /^0\.25$/, max: /^3$/, step: /^0\.05$/,
+  });
+  assertAttributes(startTagById('wormholeThroat', template), {
+    type: /range/, min: /^0\.5$/, max: /^2$/, step: /^0\.05$/,
+  });
+  assertAttributes(startTagById('wormholeExitVelocity', template), {
+    type: /range/, min: /^0\.5$/, max: /^2$/, step: /^0\.05$/,
+  });
+  for (const id of ['wormholePull', 'wormholeThroat', 'wormholeExitVelocity']) {
+    assert.match(startTagById(id, template), /aria-label=/);
+  }
+});
+
+test('integrates Wormhole visuals, physics, teleportation, and lifecycle without changing black holes', () => {
+  const spawn = functionSource('spawnWormhole');
+  const build = functionSource('buildGalaxy');
+  const dynamics = functionSource('updateDynamics');
+  const clear = functionSource('clearSpawned');
+  const refresh = functionSource('refreshGalaxyInfo');
+  const selfCheck = functionSource('runSelfCheck');
+
+  assertContracts(spawn, {
+    identity: /isWormhole\s*:\s*true/,
+    baseGravity: /baseGM/,
+    baseRadius: /baseHorizonR/,
+    exitVelocity: /exitVelocity/,
+    rings: /rings/,
+    funnel: /funnel/,
+  });
+  assert.match(build, /g\.wormhole[\s\S]*spawnWormhole/);
+  assert.match(functionSource('applyWormholePhysics'), /wormholePull[\s\S]*wormholeThroat[\s\S]*wormholeExitVelocity/);
+  assert.match(refresh, /wormholeControls[\s\S]*hidden/);
+
+  const firstTransit = dynamics.indexOf('teleportBodyThroughWormhole');
+  const collisionGate = dynamics.indexOf('if (CONFIG.collisions)');
+  assert.ok(firstTransit >= 0 && firstTransit < collisionGate, 'body teleportation remains independent of collisions');
+  assert.match(dynamics, /teleportBodyThroughWormhole\(rec/);
+  assert.match(dynamics, /bh\.isWormhole[\s\S]*continue/);
+  assert.match(clear, /blackHole\s*\|\|\s*GALAXIES\[currentGalaxy\]\.wormhole/);
+  assert.match(selfCheck, /wormholeControls/);
+  assert.match(functionSource('bodyTypeLabel'), /isWormhole[\s\S]*Wormhole/);
+  assert.match(functionSource('buildObjectSummary'), /record\.isWormhole[\s\S]*Fictional wormhole simulator model/);
 });
 
 test('opens zodiac dossiers and restores the pre-selection camera pose', () => {

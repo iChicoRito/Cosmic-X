@@ -11,7 +11,7 @@ import {
   simDateFromDays,
   simDaysFromDate,
 } from '../src/pages/solar/timeline.js';
-import { closestApproach } from '../src/pages/solar/dynamics.js';
+import { closestApproach, wormholeTransit } from '../src/pages/solar/dynamics.js';
 import {
   createEpochModel,
   epochIndexAt,
@@ -47,6 +47,57 @@ test('closest-approach helper reports impacts and ignores separating bodies', ()
     closestTime: 10,
   });
   assert.equal(closestApproach(departing, target, 20), null);
+});
+
+test('wormhole transit catches swept crossings and mirrors the exit', () => {
+  const transit = wormholeTransit(
+    { x: 10, y: 0, z: 0 },
+    { x: -10, y: 0, z: 0 },
+    { x: -1, y: 0, z: 0 },
+    2,
+    5,
+    2,
+  );
+
+  assert.deepEqual(transit, {
+    position: { x: -5, y: 0, z: 0 },
+    velocity: { x: -2, y: 0, z: 0 },
+  });
+});
+
+test('wormhole transit ignores swept paths outside the throat', () => {
+  assert.equal(wormholeTransit(
+    { x: 10, y: 3, z: 0 },
+    { x: -10, y: 3, z: 0 },
+    { x: -1, y: 0, z: 0 },
+    2,
+    5,
+    1,
+  ), null);
+});
+
+test('wormhole transit falls back to velocity at the center without invalid output', () => {
+  const transit = wormholeTransit(
+    { x: 0, y: 0, z: 0 },
+    { x: 0, y: 0, z: 0 },
+    { x: 0, y: 0, z: -2 },
+    2,
+    5,
+    1,
+  );
+
+  assert.deepEqual(transit, {
+    position: { x: 0, y: 0, z: -5 },
+    velocity: { x: 0, y: 0, z: -2 },
+  });
+  assert.equal(wormholeTransit(
+    { x: 0, y: 0, z: 0 },
+    { x: 0, y: 0, z: 0 },
+    { x: 0, y: 0, z: 0 },
+    2,
+    5,
+    1,
+  ), null);
 });
 
 test('Big Bang epoch helpers expose normalized boundaries and fresh models', () => {

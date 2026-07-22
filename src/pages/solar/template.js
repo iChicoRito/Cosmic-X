@@ -216,6 +216,23 @@ export function solarTemplate() {
         <div class="row"><span>Gravity</span><span class="value" id="gravityVal"></span></div>
         <input id="gravity" type="range" min="0" max="5" step="0.1">
       </div>
+      <div id="wormholeControls" hidden>
+        <div class="sep"></div>
+        <div class="section-label">Wormhole physics</div>
+        <div class="slider-row">
+          <div class="row"><span>Gravitational pull</span><span class="value" id="wormholePullVal"></span></div>
+          <input id="wormholePull" type="range" min="0.25" max="3" step="0.05" value="1" aria-label="Wormhole gravitational pull">
+        </div>
+        <div class="slider-row">
+          <div class="row"><span>Throat size</span><span class="value" id="wormholeThroatVal"></span></div>
+          <input id="wormholeThroat" type="range" min="0.5" max="2" step="0.05" value="1" aria-label="Wormhole throat size">
+        </div>
+        <div class="slider-row">
+          <div class="row"><span>Exit velocity</span><span class="value" id="wormholeExitVelocityVal"></span></div>
+          <input id="wormholeExitVelocity" type="range" min="0.5" max="2" step="0.05" value="1" aria-label="Wormhole exit velocity">
+        </div>
+        <div class="note">Bodies crossing the throat emerge on the opposite side with their direction preserved.</div>
+      </div>
       <div class="slider-row">
         <div class="row"><span>Planet size</span><span class="value" id="sizeVal"></span></div>
         <input id="size" type="range" min="0.5" max="4" step="0.05">

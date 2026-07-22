@@ -6,6 +6,6 @@
 
 ✅ Add an interactive tour guide for new players at the start of their first session. The guide should introduce the game controls, explain the purpose of each controller/button, and walk players through the core gameplay mechanics so they understand how to navigate and interact with the game before they begin.
 
-🟨 --------
+🟨 Introduce the Wormhole Galaxy, a unique fictional galaxy featuring a massive wormhole with customizable physics, dynamic gravitational effects, teleportation mechanics, and immersive visual effects, allowing players to explore and experiment with a new type of cosmic environment without affecting existing galaxy simulations.
 
 🟨 --------
