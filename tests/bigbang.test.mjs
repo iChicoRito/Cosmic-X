@@ -68,8 +68,8 @@ test('uses CosmicX.png as the application favicon', () => {
 
 test('covers all eleven cosmic epochs in chronological order', () => {
   const ids = [
-    'singularity', 'planck', 'inflation', 'particles', 'atoms',
-    'firststars', 'galaxies', 'milkyway', 'solar', 'present', 'future',
+    'bigbang', 'primordial', 'recombination', 'darkages', 'firststars',
+    'firstgalaxies', 'galaxyevolution', 'solar', 'life', 'modern', 'future',
   ];
   const epochs = html.slice(html.indexOf('const EPOCHS = ['), html.indexOf('const ENV_END'));
   let cursor = 0;
@@ -155,13 +155,11 @@ test('offers accessible replay and mode-selection actions beneath the ending quo
   );
 
   const replay = functionSource('replayTimeline');
-  assert.match(replay, /fadeDip\(/);
+  assert.doesNotMatch(replay, /fadeDip\(/);
   assert.match(replay, /setEndingVisible\(\s*false\s*\)/);
-  assert.match(replay, /uTween\.active\s*=\s*false/);
   assert.match(replay, /T\.dir\s*=\s*1/);
-  assert.match(replay, /T\.u\s*=\s*0/);
   assert.match(replay, /setCinematic\(\s*true\s*\)/);
-  assert.match(replay, /setPlaying\(\s*true\s*\)/);
+  assert.match(replay, /startGlide\(\s*0\s*,\s*true\s*\)/);
   assert.match(functionSource('setupBBUI'), /bbReplayBtn[\s\S]*replayTimeline/);
   assert.match(functionSource('setEndingVisible'), /ending\.inert\s*=\s*!visible/);
 
@@ -191,8 +189,71 @@ test('drifts through the formed galaxies behind the title, then rewinds to t = 0
   assert.match(html, /BB_TITLE_U/);
   assert.ok(functionSource('driftTitleCamera'));
   const begin = functionSource('setupBBTitle');
-  assert.match(begin, /fadeDip\(/);
+  assert.doesNotMatch(begin, /fadeDip\(/);
+  assert.match(begin, /bbTitleMode\s*=\s*false/);
   assert.match(begin, /T\.u = 0/);
+});
+
+test('uses continuous glides instead of full-screen fade cuts', () => {
+  assert.doesNotMatch(template, /id=["']fade["']/);
+  assert.doesNotMatch(styles, /#fade/);
+  assert.doesNotMatch(runtime, /\bfadeDip\b|\bHARD_CUTS\b/);
+
+  const jump = functionSource('jumpToEpoch');
+  assert.match(jump, /startGlide\(\s*target\s*\)/);
+  assert.doesNotMatch(jump, /Math\.abs\(idx - epochAt/);
+  assert.match(functionSource('startGlide'), /glideDuration\(/);
+  assert.match(functionSource('stepTimeline'), /MathUtils\.smoothstep/);
+});
+
+test('updates the dossier for future eras without changing the active chapter', () => {
+  assert.match(runtime, /epochPresentationAt/);
+  assert.match(runtime, /lastPresentationKey/);
+  const apply = functionSource('applyEpoch');
+  assert.match(apply, /presentation\.key/);
+  assert.match(apply, /presentation\.label/);
+  assert.match(apply, /presentation\.timeLabel/);
+  assert.match(apply, /presentation\.desc/);
+  assert.match(apply, /epochTime['"]\)\.textContent = presentation\.badgeLabel/);
+  assert.match(apply, /temp\.textContent = presentation\.badgeDetail/);
+});
+
+test('refines the opening, first stars, Earth, and modern observation in place', () => {
+  const foam = functionSource('buildQuantumFoam');
+  assert.match(foam, /u === EPOCHS\[0\]\.u0 \? 0 : env\.foamA/);
+
+  const flash = functionSource('buildFlash');
+  assert.match(flash, /epochProgress\(/);
+  assert.match(flash, /Math\.min\(\s*0\.72/);
+  assert.match(flash, /const compressed = u === EPOCHS\[0\]\.u0/);
+  assert.match(flash, /new THREE\.SphereGeometry\(\s*0\.16/);
+  assert.match(flash, /new THREE\.MeshBasicMaterial/);
+  assert.match(flash, /particle\.visible = compressed/);
+  assert.match(flash, /sprite\.visible = !compressed && mat\.opacity > 0\.004/);
+  assert.match(flash, /u > EPOCHS\[0\]\.u0/);
+
+  const stars = functionSource('buildFirstStars');
+  assert.match(stars, /supernova/);
+  assert.match(stars, /bump\(\s*env\.starMix/);
+
+  const solar = functionSource('buildSolarForm');
+  for (const cue of ['earlyEarth', 'microbialGlow', 'telescope', 'lifeMix', 'modernA']) {
+    assert.match(solar, new RegExp(`\\b${cue}\\b`));
+  }
+  assert.match(solar, /emissive:\s*0x4a1008/);
+
+  const apply = functionSource('applyEpoch');
+  assert.match(runtime, /openingVisualAt/);
+  assert.match(apply, /envAt\(visualU\)/);
+  assert.match(apply, /system\.apply\(visualU, env\)/);
+  assert.match(apply, /camPoseAt\(visualU/);
+  assert.match(apply, /earthFocusA/);
+  assert.match(apply, /earthAnchor\.getWorldPosition/);
+  assert.match(apply, /const openingHold = visualU === EPOCHS\[0\]\.u0/);
+  assert.match(apply, /bloomPass\.strength\s*=\s*openingHold \? 0 : Math\.min\(\s*env\.bloom\s*,\s*2\.1\s*\)/);
+  assert.match(apply, /scene\.background\.setRGB\(\s*openingHold \? 0 : env\.bg\[0\]/);
+  assert.match(runtime, /earthCameraOffset\s*=\s*new THREE\.Vector3\(\s*2\.4\s*,\s*1\.2\s*,\s*3\.6\s*\)/);
+  assert.match(html, /id:\s*'bigbang'[\s\S]{0,700}gridA:\s*0,[\s\S]*?plasmaA:\s*0,[\s\S]*?particleA:\s*0/);
 });
 
 test('bends the black-hole shot through a lensing pass ahead of output', () => {
@@ -204,7 +265,7 @@ test('bends the black-hole shot through a lensing pass ahead of output', () => {
   assert.ok(functionSource('updateBBLensing'));
 });
 
-test('rides a spline camera and an inflation shockwave', () => {
+test('rides a spline camera and an opening shockwave', () => {
   assert.ok(functionSource('buildCameraPath'));
   assert.match(functionSource('camPoseAt'), /CatmullRom|CAM_CHAINS/);
   assert.ok(functionSource('buildShockwave'));
@@ -277,6 +338,16 @@ test('matches the sandbox glass treatment on the Modes link', () => {
   assert.match(rule, /border:\s*1px solid var\(--glass-border\)/);
   assert.match(rule, /backdrop-filter/);
   assert.match(rule, /text-transform:\s*uppercase/);
+});
+
+test('organizes epoch metadata with natural-case badges and stacked panel rows', () => {
+  const chip = /\.chip\s*\{[^}]*\}/s.exec(styles)?.[0] || '';
+  const epochButton = /\.epoch-btn\s*\{[^}]*\}/s.exec(styles)?.[0] || '';
+  const epochDescription = /\.epoch-btn small\s*\{[^}]*\}/s.exec(styles)?.[0] || '';
+  assert.match(chip, /text-transform:\s*none/);
+  assert.match(epochButton, /flex-direction:\s*column/);
+  assert.match(epochButton, /align-items:\s*flex-start/);
+  assert.match(epochDescription, /display:\s*block/);
 });
 
 test('aligns and contains the Big Bang mobile timeline controls', () => {

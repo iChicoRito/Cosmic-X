@@ -16,6 +16,39 @@ export function epochStartAt(epochs, index) {
   return epochs[MathUtils.clamp(index, 0, epochs.length - 1)].u0;
 }
 
+export function glideDuration(from, to, reducedMotion = false) {
+  return reducedMotion ? 0 : MathUtils.clamp(0.8 + Math.abs(to - from) * 2.4, 0.8, 2.4);
+}
+
+const OPENING_HOLD_U = 3 / 90;
+
+export function openingVisualAt(epochs, u) {
+  const bounded = MathUtils.clamp(u, 0, 1);
+  const first = epochs[0];
+  const holdEnd = first.u0 + OPENING_HOLD_U;
+  if (bounded <= holdEnd) return first.u0;
+  if (bounded >= first.u1) return bounded;
+  return first.u0 + (bounded - holdEnd) / (first.u1 - holdEnd) * (first.u1 - first.u0);
+}
+
+export function epochPresentationAt(epochs, u) {
+  const epoch = epochs[epochIndexAt(epochs, u)];
+  const beats = epoch.beats || [];
+  const beatIndex = beats.length
+    ? Math.min(beats.length - 1, Math.floor(epochProgressAt(epochs, u) * beats.length))
+    : -1;
+  const beat = beats[beatIndex];
+  return {
+    key: `${epoch.id}:${beatIndex}`,
+    label: beat ? `${epoch.label} · ${beat.label}` : epoch.label,
+    beatLabel: beat?.label || '',
+    timeLabel: beat?.timeLabel || epoch.timeLabel,
+    badgeLabel: beat?.badgeLabel || epoch.badgeLabel,
+    badgeDetail: beat?.badgeDetail ?? epoch.badgeDetail ?? '',
+    desc: beat?.desc || epoch.desc,
+  };
+}
+
 export function createEpochModel() {
   const smooth = (x, a, b) => MathUtils.smoothstep(x, a, b);
 const ENV_DEFAULTS = {
@@ -27,75 +60,93 @@ const ENV_DEFAULTS = {
   galaxyA: 0, galaxyMix: 0,
   spiralA: 0, spiralMix: 0,
   solarA: 0, solarMix: 0, ringsA: 0,
+  lifeMix: 0, earthFocusA: 0, modernA: 0,
   futureMix: 0, redshift: 0, starfieldA: 0,
 };
 const E = (o) => Object.assign({}, ENV_DEFAULTS, o);
 
 const EPOCHS = [
   {
-    id: 'singularity', label: 'Singularity', timeLabel: 't = 0', tempLabel: '∞', span: 4,
-    desc: 'All of space, time, matter, and energy compressed into a single point of infinite density. There is no before.',
-    env: E({ scale: 0.015, bloom: 0.9, foamA: 0.12 }),
-    cam: { from: { pos: [0, 1, 30], look: [0, 0, 0], fov: 55 }, to: { pos: [0, 1, 24], look: [0, 0, 0], fov: 57 } },
+    id: 'bigbang', label: 'The Big Bang', timeLabel: '0 seconds', tempLabel: 'Extremely hot', span: 9,
+    badgeLabel: 'Instant zero', badgeDetail: 'Extremely hot',
+    desc: 'Space and time begin as the universe expands from an extremely hot, dense state, releasing matter and energy into a rapidly growing cosmos.',
+    env: E({ scale: 0.02, bloom: 2.1, bg: [0.02, 0.012, 0.008], foamA: 0.8, flashA: 0.75, gridA: 0, plasmaA: 0, plasmaHeat: 1, particleA: 0 }),
+    cam: { from: { pos: [0, 1, 30], look: [0, 0, 0], fov: 55 }, to: { pos: [0, 8, 64], look: [0, 0, 0], fov: 72 } },
   },
   {
-    id: 'planck', label: 'Planck Epoch', timeLabel: '10⁻⁴³ s', tempLabel: '10³² K', span: 6,
-    desc: 'The earliest meaningful moment. Quantum fluctuations ripple through newborn spacetime as the known laws of physics take hold.',
-    env: E({ scale: 0.02, bloom: 1.5, bg: [0.008, 0.008, 0.016], foamA: 1, flashA: 0.05, gridA: 0.08 }),
-    cam: { from: { pos: [0, 1, 24], look: [0, 0, 0], fov: 57 }, to: { pos: [0, 3, 19], look: [0, 0, 0], fov: 62 } },
-  },
-  {
-    id: 'inflation', label: 'Inflation', timeLabel: '10⁻³⁶–10⁻³² s', tempLabel: '10²⁸ K', span: 7,
-    desc: 'In a brilliant flash, space itself expands faster than light, stretching quantum ripples to cosmic scale.',
-    env: E({ scale: 0.06, bloom: 3.6, bg: [0.02, 0.015, 0.012], foamA: 0.35, flashA: 1, gridA: 0.5, plasmaA: 0.2, plasmaHeat: 1 }),
-    cam: { from: { pos: [0, 3, 19], look: [0, 0, 0], fov: 62 }, to: { pos: [0, 8, 64], look: [0, 0, 0], fov: 72 } },
-  },
-  {
-    id: 'particles', label: 'Particle Formation', timeLabel: '10⁻⁶ s – 3 min', tempLabel: '10¹³ K', span: 11,
-    desc: 'A searing quark–gluon plasma fills the universe and cools; quarks bind into protons and neutrons — the seeds of all matter.',
-    env: E({ scale: 4, bloom: 2, bg: [0.05, 0.02, 0.008], flashA: 0.1, gridA: 0.34, plasmaA: 1, plasmaHeat: 0.92, particleA: 0.85, particleMix: 0.06 }),
+    id: 'primordial', label: 'The Primordial Universe', timeLabel: 'The first few minutes', tempLabel: 'Billions of kelvin', span: 10,
+    badgeLabel: 'First minutes', badgeDetail: 'Billions K',
+    desc: 'The universe cools into a dense plasma ocean. Quarks bind into protons and neutrons, then the first hydrogen and helium nuclei form.',
+    env: E({ scale: 4, bloom: 1.7, bg: [0.04, 0.015, 0.006], flashA: 0.05, gridA: 0.28, plasmaA: 1, plasmaHeat: 0.92, particleA: 1, particleMix: 0.1 }),
     cam: { from: { pos: [0, 8, 64], look: [0, 0, 0], fov: 72 }, to: { pos: [36, 12, 50], look: [0, 0, 0], fov: 60 } },
   },
   {
-    id: 'atoms', label: 'Atoms Form', timeLabel: '380,000 yr', tempLabel: '3,000 K', span: 9,
-    desc: 'Electrons settle around nuclei; the fog clears and light streams free. Hydrogen and helium — the first atoms — fill space.',
-    env: E({ scale: 5.5, bloom: 1.35, bg: [0.035, 0.014, 0.005], gridA: 0.14, plasmaA: 0.45, plasmaHeat: 0.32, particleA: 1, particleMix: 0.8, cmbA: 0.55 }),
+    id: 'recombination', label: 'Recombination and the First Light', timeLabel: 'Approximately 380,000 years after the Big Bang', tempLabel: 'Approximately 3,000 K', span: 8,
+    badgeLabel: '380,000 years', badgeDetail: '3,000 K',
+    desc: 'Electrons join nuclei to form neutral atoms. The cosmic fog clears, light travels freely, and the cosmic microwave background is released.',
+    env: E({ scale: 5.5, bloom: 1.25, bg: [0.025, 0.01, 0.004], gridA: 0.08, plasmaA: 0.35, plasmaHeat: 0.28, particleA: 1, particleMix: 1, cmbA: 0.6 }),
     cam: { from: { pos: [36, 12, 50], look: [0, 0, 0], fov: 60 }, to: { pos: [26, 16, 84], look: [0, 0, 0], fov: 58 } },
   },
   {
-    id: 'firststars', label: 'First Stars', timeLabel: '200 Myr', tempLabel: '', span: 12,
-    desc: 'Gravity gathers cold gas into collapsing clouds. When their cores ignite, the first starlight ends the cosmic dark ages.',
-    env: E({ scale: 7, bloom: 1.6, bg: [0.004, 0.006, 0.012], plasmaHeat: 0.1, particleA: 0.22, particleMix: 1, cmbA: 0.16, starA: 1, starMix: 0.06, starfieldA: 0.12 }),
+    id: 'darkages', label: 'The Cosmic Dark Ages', timeLabel: 'Approximately 380,000 to 200 million years after the Big Bang', tempLabel: '', span: 9,
+    badgeLabel: '380,000–200M years',
+    desc: 'No stars exist yet. Neutral hydrogen fills a nearly dark universe while gravity slowly gathers gas into increasingly dense clouds.',
+    env: E({ scale: 6.5, bloom: 0.85, bg: [0.0015, 0.002, 0.005], plasmaHeat: 0.1, particleA: 0.1, particleMix: 1, cmbA: 0.12, starA: 0.45, starMix: 0, starfieldA: 0.08 }),
     cam: { from: { pos: [26, 16, 84], look: [0, 0, 0], fov: 58 }, to: { pos: [70, 30, 150], look: [0, 0, 0], fov: 55 } },
   },
   {
-    id: 'galaxies', label: 'First Galaxies', timeLabel: '1 Gyr', tempLabel: '', span: 12,
-    desc: 'Star clusters merge into protogalaxies, then great spirals and ellipticals — all carried apart by the expansion of space.',
-    env: E({ scale: 9, bloom: 1.4, bg: [0.003, 0.005, 0.01], plasmaHeat: 0.1, particleMix: 1, cmbA: 0.04, starA: 0.7, starMix: 1, galaxyA: 1, galaxyMix: 0.12, redshift: 0.12, starfieldA: 0.35 }),
+    id: 'firststars', label: 'The First Stars', timeLabel: 'Approximately 200 million years after the Big Bang', tempLabel: '', span: 9,
+    badgeLabel: '200M years',
+    desc: 'Gravity ignites the first massive, blue-white Population III stars. Their light ends the dark ages, and their short lives seed space through the earliest supernovae.',
+    env: E({ scale: 7.5, bloom: 1.5, bg: [0.003, 0.005, 0.011], plasmaHeat: 0.1, particleMix: 1, cmbA: 0.03, starA: 1, starMix: 0.12, starfieldA: 0.16 }),
     cam: { from: { pos: [70, 30, 150], look: [0, 0, 0], fov: 55 }, to: { pos: [120, 60, 380], look: [0, 0, 0], fov: 55 } },
   },
   {
-    id: 'milkyway', label: 'Milky Way Forms', timeLabel: '~8 Gyr ago', tempLabel: '', span: 9,
-    desc: 'Our own galaxy assembles from merging clouds and clusters, settling into a barred spiral around a supermassive black hole.',
-    env: E({ scale: 10.5, bloom: 1.35, bg: [0.002, 0.004, 0.009], plasmaHeat: 0.1, particleMix: 1, starA: 0.15, starMix: 1, galaxyA: 0.5, galaxyMix: 0.9, spiralA: 1, spiralMix: 0.15, redshift: 0.2, starfieldA: 0.55 }),
-    cam: { from: { pos: [0, 120, 210], look: [0, 0, 0], fov: 55 }, to: { pos: [80, 45, 140], look: [0, 0, 0], fov: 52 } },
+    id: 'firstgalaxies', label: 'The First Galaxies', timeLabel: 'Approximately 400 million years after the Big Bang', tempLabel: '', span: 9,
+    badgeLabel: '400M years',
+    desc: 'Young stars gather into the first galaxies. Mergers build larger structures while the earliest central black holes begin to grow.',
+    env: E({ scale: 9, bloom: 1.35, bg: [0.003, 0.005, 0.01], plasmaHeat: 0.1, particleMix: 1, starA: 0.75, starMix: 1, galaxyA: 1, galaxyMix: 0.12, spiralA: 0.08, spiralMix: 0.05, redshift: 0.1, starfieldA: 0.35 }),
+    cam: { from: { pos: [120, 60, 380], look: [0, 0, 0], fov: 55 }, to: { pos: [80, 45, 140], look: [0, 0, 0], fov: 52 } },
   },
   {
-    id: 'solar', label: 'Solar System Forms', timeLabel: '4.6 Gyr ago', tempLabel: '', span: 13,
-    desc: 'In one spiral arm a nebula collapses into a spinning disk. The Sun ignites; dust grows into planetesimals, protoplanets, and worlds.',
-    env: E({ scale: 12, bloom: 1.4, bg: [0.002, 0.003, 0.007], plasmaHeat: 0.1, particleMix: 1, starMix: 1, galaxyA: 0.2, galaxyMix: 1, spiralA: 0.45, spiralMix: 1, solarA: 1, solarMix: 0.05, redshift: 0.26, starfieldA: 0.8 }),
-    cam: { from: { pos: [600, 60, 130], look: [600, 0, 0], fov: 55 }, to: { pos: [655, 26, 85], look: [600, 0, 0], fov: 52 } },
+    id: 'galaxyevolution', label: 'Galaxy Evolution', timeLabel: 'Approximately 1 to 5 billion years after the Big Bang', tempLabel: '', span: 10,
+    badgeLabel: '1–5B years',
+    desc: 'Spiral and elliptical galaxies mature. Stellar nurseries form new generations of stars as supernovae spread heavy elements through space.',
+    env: E({ scale: 10.5, bloom: 1.25, bg: [0.002, 0.004, 0.009], plasmaHeat: 0.1, particleMix: 1, starA: 0.25, starMix: 1, galaxyA: 0.65, galaxyMix: 1, spiralA: 1, spiralMix: 0.18, redshift: 0.18, starfieldA: 0.55 }),
+    cam: { from: { pos: [80, 45, 140], look: [0, 0, 0], fov: 52 }, to: { pos: [300, 70, 190], look: [300, 0, 0], fov: 55 } },
   },
   {
-    id: 'present', label: 'Present Day', timeLabel: '13.8 Gyr', tempLabel: '2.7 K', span: 8,
-    desc: 'A middle-aged star, eight planets, and a quiet sky. Every atom around you was forged somewhere along this story.',
-    env: E({ scale: 13.5, bloom: 1.2, bg: [0.002, 0.003, 0.006], plasmaHeat: 0.1, particleMix: 1, starMix: 1, galaxyA: 0.12, galaxyMix: 1, spiralA: 0.22, spiralMix: 1, solarA: 1, solarMix: 1, ringsA: 0.8, redshift: 0.3, starfieldA: 1 }),
-    cam: { from: { pos: [655, 26, 85], look: [600, 0, 0], fov: 52 }, to: { pos: [530, 42, 118], look: [600, 0, 0], fov: 55 } },
+    id: 'solar', label: 'Birth of the Solar System', timeLabel: 'Approximately 9.2 billion years after the Big Bang, or 4.6 billion years ago', tempLabel: '4.6 billion years ago', span: 10,
+    badgeLabel: '9.2B years', badgeDetail: '4.6B years ago',
+    desc: 'A molecular cloud collapses into the Sun and a rotating protoplanetary disk. Dust and rock gather into planets, moons, asteroids, and comets.',
+    env: E({ scale: 12, bloom: 1.35, bg: [0.002, 0.003, 0.007], plasmaHeat: 0.1, particleMix: 1, starMix: 1, galaxyA: 0.18, galaxyMix: 1, spiralA: 0.5, spiralMix: 1, solarA: 1, solarMix: 0.05, redshift: 0.25, starfieldA: 0.8 }),
+    cam: { from: { pos: [300, 70, 190], look: [300, 0, 0], fov: 55 }, to: { pos: [655, 26, 85], look: [600, 0, 0], fov: 52 } },
   },
   {
-    id: 'future', label: 'Future Universe', timeLabel: '10¹⁴ yr and beyond', tempLabel: '→ 0 K', span: 9,
-    desc: 'Expansion accelerates. Galaxies slip beyond the horizon, stars fade to embers, and the universe drifts toward a cold, quiet dark.',
-    env: E({ scale: 15, bloom: 1, bg: [0.001, 0.001, 0.003], plasmaHeat: 0.1, particleMix: 1, starMix: 1, galaxyA: 0.08, galaxyMix: 1, spiralA: 0.15, spiralMix: 1, solarA: 0.9, solarMix: 1, ringsA: 0.25, futureMix: 0.1, redshift: 0.55, starfieldA: 0.7 }),
+    id: 'life', label: 'Earth and the Rise of Life', timeLabel: 'Approximately 4.5 to 3.5 billion years ago', tempLabel: '', span: 8,
+    badgeLabel: '4.5–3.5B years ago',
+    desc: 'Earth cools from a volcanic world, oceans form, and the first simple microorganisms begin the long history of biological evolution.',
+    env: E({ scale: 13, bloom: 1.15, bg: [0.002, 0.003, 0.006], plasmaHeat: 0.1, particleMix: 1, starMix: 1, galaxyA: 0.12, galaxyMix: 1, spiralA: 0.22, spiralMix: 1, solarA: 1, solarMix: 1, ringsA: 0.7, lifeMix: 0.1, earthFocusA: 1, redshift: 0.28, starfieldA: 0.9 }),
+    cam: { from: { pos: [655, 26, 85], look: [600, 0, 0], fov: 52 }, to: { pos: [620, 12, 32], look: [600, 0, 0], fov: 48 } },
+  },
+  {
+    id: 'modern', label: 'The Modern Universe', timeLabel: 'Present day, approximately 13.8 billion years after the Big Bang', tempLabel: '2.7 K', span: 7,
+    badgeLabel: 'Present day', badgeDetail: '2.7 K',
+    desc: 'Billions of galaxies fill the observable universe. Stars continue to form and die while humanity studies the cosmos from Earth and space.',
+    env: E({ scale: 13.5, bloom: 1.1, bg: [0.002, 0.003, 0.006], plasmaHeat: 0.1, particleMix: 1, starMix: 1, galaxyA: 0.12, galaxyMix: 1, spiralA: 0.22, spiralMix: 1, solarA: 1, solarMix: 1, ringsA: 0.8, lifeMix: 1, modernA: 1, redshift: 0.3, starfieldA: 1 }),
+    cam: { from: { pos: [620, 12, 32], look: [600, 0, 0], fov: 48 }, to: { pos: [530, 42, 118], look: [600, 0, 0], fov: 55 } },
+  },
+  {
+    id: 'future', label: 'The Distant Future', timeLabel: 'Trillions to more than 10¹⁰⁰ years into the future', tempLabel: 'Approaching 0 K', span: 11,
+    badgeLabel: 'Trillions+', badgeDetail: 'Near 0 K',
+    desc: 'Star formation ends, stellar remnants and black holes dominate, and the universe approaches a cold state of maximum entropy.',
+    beats: [
+      { label: 'Stelliferous Era', timeLabel: 'Up to approximately 10¹⁴ years', badgeLabel: '≤10¹⁴ years', desc: 'The final generations of stars shine as star formation steadily declines.' },
+      { label: 'Degenerate Era', timeLabel: 'Approximately 10¹⁴–10⁴⁰ years', badgeLabel: '10¹⁴–10⁴⁰ years', desc: 'White dwarfs, neutron stars, and black holes become the dominant objects in darkened galaxies.' },
+      { label: 'Black Hole Era', timeLabel: 'Approximately 10⁴⁰–10¹⁰⁰ years', badgeLabel: '10⁴⁰–10¹⁰⁰ years', desc: 'Black holes dominate an increasingly empty universe and slowly evaporate through Hawking radiation.' },
+      { label: 'Dark Era / Heat Death', timeLabel: 'Beyond approximately 10¹⁰⁰ years', badgeLabel: 'Beyond 10¹⁰⁰ years', desc: 'Almost no usable energy remains as the last black holes fade into a cold, nearly empty universe.' },
+    ],
+    env: E({ scale: 15, bloom: 0.9, bg: [0.001, 0.001, 0.003], plasmaHeat: 0.1, particleMix: 1, starMix: 1, galaxyA: 0.08, galaxyMix: 1, spiralA: 0.15, spiralMix: 1, solarA: 0.9, solarMix: 1, ringsA: 0.25, lifeMix: 1, modernA: 0.2, futureMix: 0.1, redshift: 0.55, starfieldA: 0.7 }),
     cam: { from: { pos: [530, 42, 118], look: [600, 0, 0], fov: 55 }, to: { pos: [610, 190, 330], look: [600, 0, 0], fov: 50 } },
   },
 ];
@@ -103,7 +154,7 @@ const EPOCHS = [
 const ENV_END = E({
   scale: 26, bloom: 0.5, plasmaHeat: 0.1, particleMix: 1, starMix: 1,
   galaxyA: 0, galaxyMix: 1, spiralA: 0.04, spiralMix: 1,
-  solarA: 0.1, solarMix: 1, futureMix: 1, redshift: 1, starfieldA: 0.05,
+  solarA: 0.03, solarMix: 1, lifeMix: 1, futureMix: 1, redshift: 1, starfieldA: 0.01,
 });
 
 (function normalizeEpochs() {

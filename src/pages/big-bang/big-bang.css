@@ -42,7 +42,7 @@
   .chip {
     display: inline-block; padding: 2px 8px; border-radius: 999px;
     background: rgba(138, 184, 255, 0.12); border: 1px solid rgba(138, 184, 255, 0.3);
-    color: var(--accent); font: 600 10px var(--font); letter-spacing: .1em; text-transform: uppercase;
+    color: var(--accent); font: 600 10px var(--font); letter-spacing: .02em; text-transform: none;
   }
   .section-label {
     font-size: 10.5px; text-transform: uppercase; letter-spacing: .14em;
@@ -76,12 +76,6 @@
     width: 14px; height: 14px; border-radius: 50%;
     background: #e9eef7; border: 1px solid rgba(255, 255, 255, 0.35);
   }
-
-  #fade {
-    position: fixed; inset: 0; z-index: 15; background: #000;
-    opacity: 0; pointer-events: none; transition: opacity .35s ease;
-  }
-  #fade.on { opacity: 1; }
 
   #cinebars { position: fixed; inset: 0; z-index: 9; pointer-events: none; }
   #cinebars .bar { position: absolute; left: 0; right: 0; height: 9vh; background: #000; transform: scaleY(0); transition: transform .9s ease; }
@@ -253,7 +247,7 @@
   body.ui-hidden :is(#bbBar, #bbPanel, #epochCard, #backLink, #toasts, #cinebars) {
     visibility: hidden !important;
   }
-  .preview :is(#bbTitle, #backLink, #bbUiToggle, #bbEnding, #fade, #cinebars, #toasts, #bbPanel, #epochCard, #bbBar) {
+  .preview :is(#bbTitle, #backLink, #bbUiToggle, #bbEnding, #cinebars, #toasts, #bbPanel, #epochCard, #bbBar) {
     display: none !important;
   }
 
@@ -270,13 +264,13 @@
   #bbPanel.visible { opacity: 1; translate: 0 0; pointer-events: auto; }
   #epochList { display: flex; flex-direction: column; gap: 5px; }
   .epoch-btn {
-    display: flex; align-items: baseline; justify-content: space-between; gap: 8px;
+    display: flex; flex-direction: column; align-items: flex-start; justify-content: flex-start; gap: 2px;
     padding: 6px 10px; text-align: left; cursor: pointer;
     background: transparent; border: 1px solid transparent; color: var(--muted);
     font: 600 11.5px var(--font); letter-spacing: .03em;
     transition: background .15s, color .15s, border-color .15s;
   }
-  .epoch-btn small { font-weight: 400; font-size: 10px; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .epoch-btn small { display: block; width: 100%; font-weight: 400; font-size: 10px; line-height: 1.35; color: var(--muted); font-variant-numeric: tabular-nums; }
   .epoch-btn:hover { background: var(--glass-soft); color: var(--fg); }
   .epoch-btn.active { background: rgba(138, 184, 255, 0.12); border-color: rgba(138, 184, 255, 0.45); color: var(--fg); }
   .epoch-btn:focus-visible { outline: 2px solid var(--ring); outline-offset: 1px; }

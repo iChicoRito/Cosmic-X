@@ -2,7 +2,7 @@ import { createPostprocessingShaders } from '../../shared/postprocessing-shaders
 import { fbm, hash2, makeCanvas, valueNoise } from '../../shared/procedural-canvas.js';
 import { paintRangeFill } from '../../shared/range.js';
 import { createBigBangConfig } from './config.js';
-import { createEpochModel } from './timeline.js';
+import { createEpochModel, epochPresentationAt, glideDuration, openingVisualAt } from './timeline.js';
 import { createCameraChains } from './camera.js';
 import { createSystemRegistry } from './systems.js';
 import { bindBigBangNavigation } from './ui.js';
@@ -392,6 +392,10 @@ scene.add(universeGroup, fixedGroup);
 // The solar-system set lives far from the galaxy-field origin so the two
 // hero scenes never overlap; the camera travels there for the late epochs.
 const SOLAR_POS = new THREE.Vector3(600, 0, 0);
+let earthAnchor = null;
+const earthWorld = new THREE.Vector3();
+const earthCamera = new THREE.Vector3();
+const earthCameraOffset = new THREE.Vector3(2.4, 1.2, 3.6);
 
 /* ================================================================
    EPOCHS — the timeline data model
@@ -409,7 +413,8 @@ const { EPOCHS, epochAt, epochProgress, uForEpoch, envAt } = createEpochModel();
 const BB_SPEEDS = [0.25, 0.5, 1, 2, 4, 8];
 const BASE_RATE = 1 / 90;   // full journey ≈ 90 s at 1×
 const T = { u: 0, speedIdx: 2, dir: 1, playing: false, cinematic: true };
-const uTween = { active: false, from: 0, to: 0, t: 0, dur: 0.8 };
+const uTween = { active: false, from: 0, to: 0, t: 0, dur: 0.8, resume: false };
+const prefersReducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
 let expansionRate = 1;
 let shimmerT = 0;           // cosmetic clock for shader shimmer + camera drift
 const endingAnchor = new THREE.Vector3(600, 14, 0);
@@ -436,9 +441,9 @@ function updateEndingTracking() {
 }
 
 // Title screen: park the timeline on the formed-galaxies era and drift the
-// camera through it until Begin is pressed (then dip to black and start at 0).
+// camera through it until Begin resets the journey beneath the title dissolve.
 let bbTitleMode = true;
-const BB_TITLE_U = 0.66;    // Milky Way + Andromeda + M87 all in frame
+const BB_TITLE_U = (EPOCHS[6].u0 + EPOCHS[6].u1) * 0.5;
 
 function driftTitleCamera() {
   // slow layered sinusoids — continuous, so the loop never visibly restarts
@@ -457,9 +462,15 @@ function driftTitleCamera() {
 function stepTimeline(dt) {
   if (uTween.active) {
     uTween.t = Math.min(uTween.t + dt / uTween.dur, 1);
-    const k = 1 - Math.pow(1 - uTween.t, 5);
+    const k = THREE.MathUtils.smoothstep(uTween.t, 0, 1);
     T.u = uTween.from + (uTween.to - uTween.from) * k;
-    if (uTween.t >= 1) uTween.active = false;
+    if (uTween.t >= 1) {
+      uTween.active = false;
+      if (uTween.resume) {
+        uTween.resume = false;
+        setPlaying(true);
+      }
+    }
     return;
   }
   if (!T.playing) return;
@@ -484,38 +495,34 @@ function jumpToEpoch(i) {
   const target = uForEpoch(idx);
   T.playing = false;
   updateTransportUI();
-  if (Math.abs(idx - epochAt(T.u)) <= 1) {
-    uTween.active = true;
-    uTween.from = T.u;
-    uTween.to = target;
-    uTween.t = 0;
-  } else {
-    fadeDip(() => { T.u = target; applyEpoch(T.u); });
-  }
+  startGlide(target);
 }
 
-function fadeDip(mid) {
-  const fade = document.getElementById('fade');
-  fade.classList.add('on');
-  setTimeout(() => {
-    if (mid) mid();
-    fade.classList.remove('on');
-  }, 360);
+function startGlide(target, resume = false) {
+  const duration = glideDuration(T.u, target, prefersReducedMotion);
+  if (!duration) {
+    T.u = target;
+    applyEpoch(T.u);
+    if (resume) setPlaying(true);
+    return;
+  }
+  uTween.active = true;
+  uTween.from = T.u;
+  uTween.to = target;
+  uTween.t = 0;
+  uTween.dur = duration;
+  uTween.resume = resume;
 }
 
 function replayTimeline() {
   setEndingVisible(false);
-  fadeDip(() => {
-    uTween.active = false;
-    T.dir = 1;
-    T.u = 0;
-    setCinematic(true);
-    glide.active = false;
-    controls.enabled = false;
-    applyEpoch(0);
-    setPlaying(true);
-    window.cosmicX?.audio?.play?.();  // replay brings the music back
-  });
+  setPlaying(false);
+  T.dir = 1;
+  setCinematic(true);
+  glide.active = false;
+  controls.enabled = false;
+  window.cosmicX?.audio?.play?.();
+  startGlide(0, true);
 }
 
 /* ================================================================
@@ -616,7 +623,11 @@ function buildQuantumFoam() {
   const pts = new THREE.Points(geo, mat);
   fixedGroup.add(pts);
   addSystem({
-    apply(u, env) { mat.uniforms.uA.value = env.foamA; pts.visible = env.foamA > 0.004; },
+    apply(u, env) {
+      const opacity = u === EPOCHS[0].u0 ? 0 : env.foamA;
+      mat.uniforms.uA.value = opacity;
+      pts.visible = opacity > 0.004;
+    },
     tick() { mat.uniforms.uTime.value = shimmerT; },
   });
 }
@@ -629,12 +640,21 @@ function buildFlash() {
     transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false,
   });
   const sprite = new THREE.Sprite(mat);
-  fixedGroup.add(sprite);
+  const particle = new THREE.Mesh(
+    new THREE.SphereGeometry(0.16, 24, 16),
+    new THREE.MeshBasicMaterial({ color: 0xfff4e8, toneMapped: false }),
+  );
+  fixedGroup.add(sprite, particle);
   addSystem({
     apply(u, env) {
-      mat.opacity = Math.min(1, env.flashA);
-      sprite.scale.setScalar(6 + env.flashA * 110);
-      sprite.visible = env.flashA > 0.004;
+      const compressed = u === EPOCHS[0].u0;
+      const openingPulse = u > EPOCHS[0].u0 && epochAt(u) === 0
+        ? env.flashA * (1 - smooth(epochProgress(u), 0.02, 0.28))
+        : 0;
+      mat.opacity = Math.min(0.72, openingPulse);
+      sprite.scale.setScalar(6 + openingPulse * 80);
+      sprite.visible = !compressed && mat.opacity > 0.004;
+      particle.visible = compressed;
     },
   });
 }
@@ -657,7 +677,7 @@ function buildShockwave() {
   fixedGroup.add(torus);
   addSystem({
     apply(u, env) {
-      const inf = EPOCHS[2];
+      const inf = EPOCHS[0];
       const k = smooth(u, inf.u0, inf.u0 + (inf.u1 - inf.u0) * 0.6);
       const strength = env.flashA * (1 - k) * 1.2;
       const on = k > 0.001 && strength > 0.01;
@@ -846,7 +866,13 @@ function buildFirstStars() {
     cloud.position.copy(p);
     glow.position.copy(p);
     group.add(cloud, glow);
-    units.push({ cloud, glow, base: 22 + hash2(i, 3, 17) * 22, h: hash2(i, 5, 91) });
+    units.push({
+      cloud,
+      glow,
+      base: 22 + hash2(i, 3, 17) * 22,
+      h: hash2(i, 5, 91),
+      supernova: i % 7 === 0,
+    });
   }
   addSystem({
     apply(u, env) {
@@ -858,8 +884,9 @@ function buildFirstStars() {
         unit.cloud.scale.setScalar(unit.base * (1 - 0.68 * collapse));
         unit.cloud.material.opacity = env.starA * 0.5 * (1 - smooth(m, 0.55, 0.8));
         const ignite = smooth(m, 0.55, 0.72);
-        unit.glow.scale.setScalar(2 + 11 * ignite);
-        unit.glow.material.opacity = env.starA * ignite;
+        const supernova = unit.supernova ? bump(env.starMix, 0.78 + unit.h * 0.12, 0.025) : 0;
+        unit.glow.scale.setScalar(2 + 11 * ignite + 28 * supernova);
+        unit.glow.material.opacity = env.starA * Math.min(1, ignite + supernova);
       }
     },
   });
@@ -1052,8 +1079,8 @@ function buildHeroGalaxy(opts) {
       coreGlow.material.opacity = aL * 0.75 * (1 - env.futureMix * 0.85);
       if (blackHole) {
         const ready = smooth(mixL, 0.5, 0.9);
-        // the black hole outlives the stars: last bright thing in the future
-        const fade = Math.max(aL * ready, env.futureMix * 0.85);
+        const remnant = smooth(env.futureMix, 0.25, 0.55) * (1 - smooth(env.futureMix, 0.82, 1));
+        const fade = Math.max(aL * ready * (1 - env.futureMix), remnant);
         diskMat.uniforms.uFade.value = fade;
         photon.material.opacity = fade;
         sgr.visible = fade > 0.01;
@@ -1189,8 +1216,42 @@ function buildSolarForm() {
       tiltG.add(ring);
     }
     group.add(anchor);
-    return { def, mesh, anchor, phase: hash2(j, 9, 33) * Math.PI * 2 };
+    return { def, mesh, anchor, tiltG, size, phase: hash2(j, 9, 33) * Math.PI * 2 };
   });
+
+  const earth = planets.find(planet => planet.def.name === 'Earth');
+  earthAnchor = earth.anchor;
+  const earlyEarth = new THREE.Mesh(
+    new THREE.SphereGeometry(earth.size * 1.015, 32, 16),
+    new THREE.MeshStandardMaterial({
+      map: createPlanetTexture({ tex: 'rocky', colors: ['#8b2f16', '#3a211c', '#e06a28'] }, 1403),
+      transparent: true,
+      opacity: 1,
+      emissive: 0x4a1008,
+      emissiveIntensity: 0.7,
+      roughness: 0.95,
+      depthWrite: false,
+    }),
+  );
+  earth.tiltG.add(earlyEarth);
+  const microbialGlow = makeAtmosphere(earth.size * 1.03, '#42f5c5', 0);
+  microbialGlow.visible = false;
+  earth.tiltG.add(microbialGlow);
+
+  const telescope = new THREE.Group();
+  const telescopeBody = new THREE.Mesh(
+    new THREE.BoxGeometry(0.42, 0.34, 0.9),
+    new THREE.MeshStandardMaterial({ color: 0xd9e2ee, roughness: 0.55, metalness: 0.35 }),
+  );
+  const panelMaterial = new THREE.MeshStandardMaterial({ color: 0x254a8a, roughness: 0.7, metalness: 0.15 });
+  const leftPanel = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.05, 0.48), panelMaterial);
+  const rightPanel = leftPanel.clone();
+  leftPanel.position.x = -0.82;
+  rightPanel.position.x = 0.82;
+  telescope.add(telescopeBody, leftPanel, rightPanel);
+  telescope.visible = false;
+  group.add(telescope);
+
   // moons, tucked under their host anchors so growth scales them too
   const moons = [];
   planets.forEach((p, pi) => {
@@ -1278,6 +1339,22 @@ function buildSolarForm() {
         p.mesh.rotation.y = spin * (0.6 + (j % 3) * 0.25);   // deterministic self-spin
         p.growth = growth;
       });
+
+      const life = smooth(env.lifeMix, 0, 1);
+      earlyEarth.rotation.y = earth.mesh.rotation.y;
+      earlyEarth.material.opacity = 1 - smooth(life, 0.12, 0.82);
+      earlyEarth.visible = earth.anchor.visible && earlyEarth.material.opacity > 0.01;
+      microbialGlow.material.uniforms.uIntensity.value = 0.62 * smooth(life, 0.35, 1);
+      microbialGlow.visible = earth.anchor.visible && life > 0.35;
+
+      telescope.visible = earth.anchor.visible && env.modernA > 0.01;
+      if (telescope.visible) {
+        telescope.position.copy(earth.anchor.position);
+        telescope.position.y += 2.4;
+        telescope.rotation.set(0.25, spin * 0.18, 0.35);
+        telescope.scale.setScalar(env.modernA);
+      }
+
       for (const mo of moons) {
         const host = planets[mo.pi];
         mo.mesh.visible = m > 0.85 && host.anchor.visible;
@@ -1346,13 +1423,12 @@ function buildStarfield() {
    shimmerT-based cosmetics elsewhere).
    ================================================================ */
 
-const HARD_CUTS = new Set(['galaxies>milkyway', 'milkyway>solar']);
 let lastEpochIdx = -1;
+let lastPresentationKey = '';
 const _camPos = new THREE.Vector3(), _camLook = new THREE.Vector3(), _camB = new THREE.Vector3();
 
-// The documentary rail: piecewise Catmull-Rom chains through the epoch poses,
-// split only at the two hard cuts. C¹ inside a chain, so the camera never does
-// the per-epoch smoothstep stop-and-go it used to.
+// One centripetal Catmull-Rom documentary rail runs through every epoch pose,
+// keeping position and look motion continuous across chapter boundaries.
 const CAM_CHAINS = createCameraChains();
 
 function buildCameraPath() {
@@ -1396,9 +1472,12 @@ function camPoseAt(u, outPos, outLook) {
 }
 
 function applyEpoch(u) {
-  const env = envAt(u);
+  const visualU = openingVisualAt(EPOCHS, u);
+  const openingHold = visualU === EPOCHS[0].u0;
+  const env = envAt(visualU);
   const idx = epochAt(u);
   const e = EPOCHS[idx];
+  const presentation = epochPresentationAt(EPOCHS, u);
   if (u < 1) setEndingVisible(false);
 
   // Music fades with the timeline across the Future Universe epoch: full
@@ -1406,20 +1485,30 @@ function applyEpoch(u) {
   const future = EPOCHS[EPOCHS.length - 1];
   window.cosmicX?.audio?.setDuck?.(u <= future.u0 ? 1 : 1 - (u - future.u0) / (1 - future.u0));
 
-  // user-adjustable expansion: scales post-inflation growth + redshift
-  const postInf = smooth(u, EPOCHS[3].u0, EPOCHS[3].u0 + 0.05);
-  env.scale *= 1 + (expansionRate - 1) * postInf;
+  // user-adjustable expansion: scales post-opening growth + redshift
+  const postOpening = smooth(u, EPOCHS[1].u0, EPOCHS[1].u0 + 0.05);
+  env.scale *= 1 + (expansionRate - 1) * postOpening;
   env.redshift *= expansionRate;
 
   universeGroup.scale.setScalar(env.scale);
-  bloomPass.strength = env.bloom;
-  scene.background.setRGB(env.bg[0], env.bg[1], env.bg[2]);
+  bloomPass.strength = openingHold ? 0 : Math.min(env.bloom, 2.1);
+  scene.background.setRGB(
+    openingHold ? 0 : env.bg[0],
+    openingHold ? 0 : env.bg[1],
+    openingHold ? 0 : env.bg[2],
+  );
 
-  for (const s of systems) s.apply(u, env);
+  for (const system of systems) system.apply(visualU, env);
 
   // cinematic camera (a function of u, so scrubbing scrubs the film)
   if (T.cinematic && !glide.active && !bbTitleMode) {
-    const fov = camPoseAt(u, _camPos, _camLook);
+    const fov = camPoseAt(visualU, _camPos, _camLook);
+    if (earthAnchor && env.earthFocusA > 0.001) {
+      earthAnchor.getWorldPosition(earthWorld);
+      earthCamera.copy(earthWorld).add(earthCameraOffset);
+      _camPos.lerp(earthCamera, env.earthFocusA);
+      _camLook.lerp(earthWorld, env.earthFocusA);
+    }
     const drift = 0.012 * _camPos.distanceTo(_camLook);
     _camPos.x += Math.sin(shimmerT * 0.23) * drift;
     _camPos.y += Math.sin(shimmerT * 0.31) * drift * 0.6;
@@ -1439,24 +1528,25 @@ function applyEpoch(u) {
   document.getElementById('bbEpochLabel').textContent = e.label;
   document.getElementById('bbTimeLabel').textContent = e.timeLabel;
 
-  if (idx !== lastEpochIdx) {
-    const chips = document.querySelectorAll('.epoch-btn');
-    chips.forEach((chip, i) => chip.classList.toggle('active', i === idx));
-    document.getElementById('epochName').textContent = e.label;
-    document.getElementById('epochTime').textContent = e.timeLabel;
+  if (presentation.key !== lastPresentationKey) {
+    if (idx !== lastEpochIdx) {
+      const chips = document.querySelectorAll('.epoch-btn');
+      chips.forEach((chip, i) => chip.classList.toggle('active', i === idx));
+    }
+    document.getElementById('epochName').textContent = presentation.label;
+    document.getElementById('epochTime').textContent = presentation.badgeLabel;
+    document.getElementById('epochTime').title = presentation.timeLabel;
     const temp = document.getElementById('epochTemp');
-    temp.textContent = e.tempLabel;
-    temp.hidden = !e.tempLabel;
-    document.getElementById('epochDesc').textContent = e.desc;
+    temp.textContent = presentation.badgeDetail;
+    temp.title = e.tempLabel;
+    temp.hidden = !presentation.badgeDetail;
+    document.getElementById('epochDesc').textContent = presentation.desc;
     const card = document.getElementById('epochCard');
     card.classList.remove('swap');
     void card.offsetWidth;   // restart the crossfade animation
     card.classList.add('swap');
-    if (lastEpochIdx >= 0 && T.cinematic) {
-      const key = EPOCHS[Math.min(idx, lastEpochIdx)].id + '>' + EPOCHS[Math.max(idx, lastEpochIdx)].id;
-      if (HARD_CUTS.has(key)) fadeDip();
-    }
     lastEpochIdx = idx;
+    lastPresentationKey = presentation.key;
   }
 }
 
@@ -1632,19 +1722,16 @@ function setupBBTitle() {
         toast('Fullscreen unavailable — continuing in this window');
       }
     }
+    bbTitleMode = false;
+    T.u = 0;
+    applyEpoch(0);
+    setPlaying(true);
     document.getElementById('bbTitle').classList.add('hidden');
     document.getElementById('bbBar').classList.add('visible');
     document.getElementById('bbPanel').classList.add('visible');
     document.getElementById('epochCard').classList.add('visible');
     document.getElementById('bbUiToggle').classList.add('visible');
     document.getElementById('cinebars').classList.add('on');
-    // dip to black, rewind the parked title era to t = 0, then roll the film
-    fadeDip(() => {
-      bbTitleMode = false;
-      T.u = 0;
-      applyEpoch(0);
-      setPlaying(true);
-    });
   }, { once: true });
 }
 

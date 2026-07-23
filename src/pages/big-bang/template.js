@@ -20,7 +20,6 @@ export function bigBangTemplate() {
   </div>
 </div>
 
-<div id="fade"></div>
 <div id="cinebars"><div class="bar top"></div><div class="bar bottom"></div></div>
 <div id="toasts" aria-live="polite"></div>
 
