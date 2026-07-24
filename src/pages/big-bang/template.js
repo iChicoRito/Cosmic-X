@@ -1,6 +1,8 @@
+import { ICONS } from '../../shared/icons.js';
+
 export function bigBangTemplate() {
   return String.raw`
-<a id="backLink" href="#/modes">&larr; Modes</a>
+<a id="backLink" href="#/modes">${ICONS.back}<span>Modes</span></a>
 <button id="bbUiToggle" class="ui-eye" aria-pressed="false" title="Hide interface (H)">Hide UI</button>
 
 <!-- Title overlay -->
@@ -16,7 +18,7 @@ export function bigBangTemplate() {
   <p>The night sky is more than a collection of stars—it is the story of where you came from.</p>
   <div class="ending-actions">
     <button id="bbReplayBtn" class="btn" type="button">Play Again</button>
-    <a id="bbEndingBack" class="btn" href="#/modes">Back to Menu</a>
+    <a id="bbEndingBack" class="btn" href="#/modes">${ICONS.back}<span>Back to Menu</span></a>
   </div>
 </div>
 

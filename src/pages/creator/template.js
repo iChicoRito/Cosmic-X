@@ -1,6 +1,8 @@
+import { ICONS } from '../../shared/icons.js';
+
 export function creatorTemplate() {
   return String.raw`
-<a id="creatorBackLink" class="glass" href="#/modes">&larr; Back to Modes</a>
+<a id="creatorBackLink" class="glass" href="#/modes">${ICONS.back}<span>Back to Modes</span></a>
 
 <!-- Title view: empty space where galaxies periodically bloom -->
 <div id="crTitle">

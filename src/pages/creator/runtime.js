@@ -21,6 +21,7 @@ import {
 } from './systems.js';
 import { CAMERA_MODES, createSystemView } from './system-view.js';
 import { createStore, sanitizeState, serializeState, deserializeState } from './persistence.js';
+import { ICONS } from '../../shared/icons.js';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
@@ -1398,7 +1399,7 @@ function syncSystemChrome() {
   // mode menu from the galaxy itself.
   const back = $('creatorBackLink');
   if (back) {
-    back.textContent = inSystem ? '← Back to Galaxy' : '← Back to Modes';
+    back.innerHTML = ICONS.back + '<span>' + (inSystem ? 'Back to Galaxy' : 'Back to Modes') + '</span>';
     back.setAttribute('href', inSystem ? '#/creator' : '#/modes');
   }
   hint(inSystem ? 'Click a body to inspect it · Esc returns to the galaxy' : '');

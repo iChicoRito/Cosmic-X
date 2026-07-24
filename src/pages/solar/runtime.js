@@ -9,6 +9,7 @@ import { createCameraMetadata } from './camera.js';
 import { createSolarSettings } from './settings.js';
 import { createStore as createSolarStore, sanitizeState, encodeShare, decodeShare } from './persistence.js';
 import { SOLAR_PRESETS } from './presets.js';
+import { ICONS } from './icons.js';
 import {
   J2000_MS, SIM_DAY_LIMIT, TIME_SCALE_PRESETS, clampSimDays,
   formatElapsedDays, formatUtcDate, formatUtcTime, sessionStartMs,
@@ -2971,7 +2972,7 @@ function setupPicking() {
   };
   const startCursorLaser = (event) => {
     if (!uiParams.cursorLaserMode || titleMode || cursorLaserActive || event.button !== 0
-        || !document.querySelector('.tab-page[data-page="laser"]')?.classList.contains('active')) return;
+        || !document.querySelector('.tab-page[data-page="tools"]')?.classList.contains('active')) return;
     event.preventDefault();
     event.stopImmediatePropagation();
     cursorLaserActive = true;
@@ -4041,9 +4042,6 @@ function refreshBottomInfoBar(force = false) {
   const summary = buildObjectSummary(selectedRecord, GALAXIES[currentGalaxy]);
   ui('barUtcDate').textContent = formatUtcDate(date);
   ui('barUtcTime').textContent = formatUtcTime(date);
-  ui('barDay').textContent = String(date.getUTCDate()).padStart(2, '0');
-  ui('barMonth').textContent = date.toLocaleString('en', { month: 'long', timeZone: 'UTC' });
-  ui('barYear').textContent = String(date.getUTCFullYear());
   ui('barElapsed').textContent = formatElapsedDays(simDays);
   ui('barUniverseAge').textContent = (13.8 + simDays / (365.25e9)).toFixed(9) + ' billion years';
   ui('barEpoch').textContent = 'J' + julianEpoch().toFixed(3);
@@ -4279,9 +4277,23 @@ function setupUI() {
   const pages = [...document.querySelectorAll('.tab-page')];
   for (const tab of tabs) {
     tab.addEventListener('click', () => {
-      if (tab.dataset.tab !== 'laser') disableCursorLaserMode();
+      if (tab.dataset.tab !== 'tools') disableCursorLaserMode();
       tabs.forEach(t => t.classList.toggle('active', t === tab));
       pages.forEach(p => p.classList.toggle('active', p.dataset.page === tab.dataset.tab));
+    });
+  }
+
+  // timeline detail views (tabbed to keep the bottom bar short)
+  const detailTabs = [...document.querySelectorAll('.detail-tab')];
+  const detailViews = [...document.querySelectorAll('.detail-view')];
+  for (const tab of detailTabs) {
+    tab.addEventListener('click', () => {
+      detailTabs.forEach(t => {
+        const on = t === tab;
+        t.classList.toggle('active', on);
+        t.setAttribute('aria-selected', String(on));
+      });
+      detailViews.forEach(v => v.classList.toggle('active', v.dataset.detailView === tab.dataset.detail));
     });
   }
 
@@ -4650,11 +4662,11 @@ function setupUI() {
   );
 
   const mobileTimeline = window.matchMedia('(max-width: 720px)');
+  // Transport controls stay visible on every viewport; only the stat detail views are hidden on mobile (CSS).
   const syncTimelineDetails = () => {
     const panel = ui('timelineDetailsPanel');
-    const expanded = mobileTimeline.matches && ui('timelineDetails').getAttribute('aria-expanded') === 'true';
-    panel.hidden = mobileTimeline.matches && !expanded;
-    panel.setAttribute('aria-hidden', String(mobileTimeline.matches && !expanded));
+    panel.hidden = false;
+    panel.setAttribute('aria-hidden', 'false');
   };
   ui('timelineDetails').addEventListener('click', () => {
     const expanded = ui('timelineDetails').getAttribute('aria-expanded') !== 'true';
@@ -4668,7 +4680,7 @@ function setupUI() {
     const label = collapsed ? 'Show timeline panel' : 'Hide timeline panel';
     ui('barCollapse').setAttribute('aria-label', label);
     ui('barCollapse').title = label;
-    ui('barCollapse').innerHTML = collapsed ? '&#9652;' : '&#9662;';
+    ui('barCollapse').innerHTML = collapsed ? ICONS.chevronUp : ICONS.chevronDown;
   });
   if (mobileTimeline.matches) {
     ui('collapseBtn').click();
@@ -5414,7 +5426,7 @@ function runSelfCheck() {
     'ui', 'planetGrid', 'infoPanel', 'ipBody', 'warnings',
     'warningAnnouncer', 'toasts', 'spawnComet', 'spawnNEA', 'launchBtn',
     'meteorBtn', 'camGrid', 'camTarget', 'teleZoom', 'bottomBar',
-    'barUtcDate', 'barUtcTime', 'barDay', 'barMonth', 'barYear', 'barElapsed',
+    'barUtcDate', 'barUtcTime', 'barElapsed',
     'barUniverseAge', 'barEpoch', 'barTimeScale', 'barSelectedName',
     'barSelectedType', 'barSelectedSource', 'barSelectedStatus', 'barSelectedMetric',
     'barPlay', 'barPause', 'barReverse', 'timelinePrev', 'timelineNext',

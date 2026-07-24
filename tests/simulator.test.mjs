@@ -1218,8 +1218,8 @@ test('opens zodiac dossiers and restores the pre-selection camera pose', () => {
 });
 
 test('wires the customizable laser tab into the control panel', () => {
-  assert.match(html, /<button class="tab" data-tab="laser">Laser<\/button>/);
-  const page = section('<div class="tab-page" data-page="laser">', '<div class="tab-page" data-page="cam">');
+  assert.match(html, /<div class="tool-group" data-group="laser">/);
+  const page = section('<div class="tool-group" data-group="laser">', '<div class="tab-page" data-page="scene">');
   for (const id of ['laserTarget', 'laserWidth', 'laserColor', 'laserPower', 'laserDuration', 'laserDestructive', 'fireLaser']) {
     assert.ok(page.includes(`id="${id}"`), `laser page has ${id}`);
   }
@@ -1239,7 +1239,7 @@ test('wires the customizable laser tab into the control panel', () => {
 });
 
 test('adds cursor-tracked laser mode without changing single-shot mode', () => {
-  const page = section('<div class="tab-page" data-page="laser">', '<div class="tab-page" data-page="cam">');
+  const page = section('<div class="tool-group" data-group="laser">', '<div class="tab-page" data-page="scene">');
   const holdToggle = startTagById('cursorLaserMode', page);
   assertAttributes(holdToggle, { type: /^checkbox$/, 'aria-label': /cursor laser mode/i });
   assert.doesNotMatch(holdToggle, /\schecked(?:\s|>)/i, 'cursor mode defaults off');

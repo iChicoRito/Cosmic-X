@@ -225,8 +225,12 @@
     font: 600 11px var(--font); letter-spacing: .08em; text-transform: uppercase;
     transition: color .2s;
   }
+  #backLink { display: inline-flex; align-items: center; gap: 7px; }
+  #backLink svg { flex: none; }
   #backLink:hover { color: var(--fg); }
   #backLink:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
+  #bbEndingBack { display: inline-flex; align-items: center; justify-content: center; gap: 7px; }
+  #bbEndingBack svg { flex: none; }
 
   /* ---- immersive Hide UI toggle (next to the Modes link) ---- */
   .ui-eye {
