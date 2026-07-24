@@ -192,6 +192,7 @@ export function solarTemplate() {
     <button class="tab" data-tab="laser">Laser</button>
     <button class="tab" data-tab="cam">Cam</button>
     <button class="tab" data-tab="fx">FX</button>
+    <button class="tab" data-tab="save">Save</button>
   </div>
   <div id="uiBody">
 
@@ -419,6 +420,34 @@ export function solarTemplate() {
       </div>
       <div class="sep"></div>
       <button id="resetSim" class="btn danger">Reset simulation</button>
+    </div>
+
+    <div class="tab-page" data-page="save">
+      <div class="section-label">Snapshot</div>
+      <button id="solarShot" class="btn" type="button">Save image (PNG)</button>
+      <div class="sep"></div>
+      <div class="section-label">Save scene</div>
+      <div class="save-row">
+        <input id="saveName" type="text" maxlength="40" placeholder="Scene name" aria-label="Scene name">
+        <button id="saveSlot" class="btn accent" type="button">Save</button>
+      </div>
+      <div id="saveList" class="save-list"></div>
+      <div class="note">Scenes are stored in this browser only.</div>
+      <div class="sep"></div>
+      <div class="section-label">Preset scenarios</div>
+      <div class="save-row">
+        <select id="presetSelect" aria-label="Preset scenario"></select>
+        <button id="presetLoad" class="btn" type="button">Load</button>
+      </div>
+      <div id="presetDesc" class="note"></div>
+      <div class="sep"></div>
+      <div class="section-label">Share</div>
+      <button id="shareCopy" class="btn accent" type="button">Copy share link</button>
+      <div class="save-row">
+        <input id="shareImport" type="text" placeholder="Paste a share link" aria-label="Paste a share link">
+        <button id="shareLoad" class="btn" type="button">Open</button>
+      </div>
+      <div class="note">A link reopens this exact scene in any browser.</div>
     </div>
 
   </div>

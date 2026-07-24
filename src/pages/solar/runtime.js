@@ -7,6 +7,8 @@ import { closestApproach, wormholeTransit } from './dynamics.js';
 import { pickZodiac } from './zodiac.js';
 import { createCameraMetadata } from './camera.js';
 import { createSolarSettings } from './settings.js';
+import { createStore as createSolarStore, sanitizeState, encodeShare, decodeShare } from './persistence.js';
+import { SOLAR_PRESETS } from './presets.js';
 import {
   J2000_MS, SIM_DAY_LIMIT, TIME_SCALE_PRESETS, clampSimDays,
   formatElapsedDays, formatUtcDate, formatUtcTime, sessionStartMs,
@@ -24,6 +26,7 @@ import { CSS2DRenderer, CSS2DObject } from 'three/addons/renderers/CSS2DRenderer
 import { Lensflare, LensflareElement } from 'three/addons/objects/Lensflare.js';
 import { disposeThreeRuntime } from '../../shared/dispose-three.js';
 import { createResourceScope } from '../../shared/resource-scope.js';
+import { createTextureUpgrader } from '../../shared/texture-loader.js';
 import { ONBOARDING_KEYS, startOnboardingTour } from '../../shared/onboarding-tour.js';
 
 export function createSolarRuntime({ root, navigate, replaceRoute, initialView = 'title' }) {
@@ -47,6 +50,12 @@ const { BloomClampShader, LensingShader } = createPostprocessingShaders(THREE);
 
 const CONFIG = createSolarConfig();
 const { loadSettings, saveSettings } = createSolarSettings(CONFIG);
+
+// Scene save slots. localStorage access itself can throw in privacy modes;
+// createSolarStore also guards each read/write, so a noop store degrades cleanly.
+let saveStorage = null;
+try { saveStorage = window.localStorage; } catch { /* blocked */ }
+const saveStore = createSolarStore(saveStorage || { getItem: () => null, setItem: () => {} });
 
 const SESSION_START_MS = sessionStartMs();
 
@@ -233,20 +242,11 @@ function createShockTexture() {
    swaps in when the CDN answers; offline just keeps the procedural)
    ================================================================ */
 
-const texLoader = new THREE.TextureLoader();
-texLoader.setCrossOrigin('anonymous');
-
-function upgradeTexture(material, file, slot = 'map', asColor = true) {
-  if (!file) return;
-  texLoader.load(TEX_BASE + file, (tex) => {
-    if (destroyed) { tex.dispose(); return; }
-    if (asColor) tex.colorSpace = THREE.SRGBColorSpace;
-    tex.anisotropy = renderer.capabilities.getMaxAnisotropy();
-    material[slot] = tex;
-    if (slot === 'bumpMap') material.bumpScale = 0.05;
-    material.needsUpdate = true;
-  }, undefined, () => { /* offline / 404 → keep procedural fallback */ });
-}
+const upgradeTexture = createTextureUpgrader(THREE, {
+  baseUrl: TEX_BASE,
+  getRenderer: () => renderer,
+  isDestroyed: () => destroyed,
+});
 
 /* ================================================================
    SCENE, POST-PROCESSING
@@ -3899,6 +3899,80 @@ function restoreInteractionEvents() {
   }
 }
 
+/* ================================================================
+   SCENE SAVE / LOAD (localStorage slots; see persistence.js)
+   Snapshot = galaxy + sim time + timescale + camera + toggles + the
+   interaction log (spawned bodies). Apply rebuilds the galaxy and lets
+   restoreInteractionEvents re-fire the log at the saved date.
+   ================================================================ */
+const TOGGLE_INPUT_IDS = {
+  collisions: 'collisions', eclipses: 'eclipses', autoNEAs: 'neas-toggle',
+  showTrails: 'trails', showLabels: 'labels-toggle',
+  showBelt: 'belt-toggle', showNebulas: 'nebula-toggle',
+};
+
+function snapshotSolarState() {
+  const toggles = {};
+  for (const key of Object.keys(TOGGLE_INPUT_IDS)) toggles[key] = !!CONFIG[key];
+  return {
+    galaxy: currentGalaxy,
+    simDays,
+    timeScale: CONFIG.timeScale,
+    cam: { pos: camera.position.toArray(), target: controls.target.toArray() },
+    toggles,
+    log: interactionLog.map(e => ({ day: e.day, galaxy: e.galaxy, type: e.type, props: e.props })),
+  };
+}
+
+function applySolarState(state) {
+  const gi = Math.min(Math.max(0, state.galaxy | 0), GALAXIES.length - 1);
+  selectRecord(null);
+  setCameraMode('orbit');
+  flyTo(null);
+  setPlayback('paused');
+
+  Object.assign(CONFIG, state.toggles);          // scene reads these while rebuilding
+  simDays = clampSimDays(state.simDays);
+  interactionLog.length = 0;
+  for (const e of state.log) {
+    if (e.galaxy === gi) interactionLog.push({ day: e.day, galaxy: gi, type: e.type, props: e.props, handle: null });
+  }
+
+  buildGalaxy(gi);                               // wipes bodies, re-fires the log at simDays
+
+  camera.position.fromArray(state.cam.pos);
+  controls.target.fromArray(state.cam.target);
+  setTimeScale(state.timeScale);
+
+  // reflect toggles into their checkboxes; dispatch re-applies any visual side-effect
+  for (const [key, id] of Object.entries(TOGGLE_INPUT_IDS)) {
+    const el = ui(id);
+    if (el) { el.checked = !!CONFIG[key]; el.dispatchEvent(new Event('change')); }
+  }
+  refreshCameraTargets();
+  refreshGalaxyInfo();
+  refreshBottomInfoBar(true);
+}
+
+function buildShareLink() {
+  const base = window.location.origin + window.location.pathname;
+  return base + '?share=' + encodeShare(snapshotSolarState()) + '#/solar-system';
+}
+
+function maybeApplyShareLink() {
+  let param = null;
+  try { param = new URLSearchParams(window.location.search).get('share'); } catch { /* ignore */ }
+  if (!param) return;
+  try {
+    applySolarState(decodeShare(param));
+    // drop the param so reload/back doesn't reapply a now-stale link
+    window.history.replaceState(null, '', window.location.pathname + window.location.hash);
+    toast('Loaded a shared scene');
+  } catch {
+    toast('Shared link could not be read');
+  }
+}
+
 function setPlayback(mode) {
   if (!['forward', 'reverse', 'paused'].includes(mode)) return;
   const nextDirection = mode === 'reverse' ? -1 : 1;
@@ -4429,6 +4503,99 @@ function setupUI() {
     toast('Simulation reset to its initial state');
   });
   GALAXIES.forEach(g => g.planets.forEach(def => { if (def._e0 === undefined) def._e0 = def.e; }));
+
+  // Save tab — screenshot + named scene slots
+  const renderSaveList = () => {
+    const host = ui('saveList');
+    if (!host) return;
+    host.innerHTML = '';
+    const slots = saveStore.listSlots();
+    if (!slots.length) { host.innerHTML = '<div class="note">No saved scenes yet.</div>'; return; }
+    for (const slot of slots) {
+      const row = document.createElement('div');
+      row.className = 'save-row';
+      const name = document.createElement('span');
+      name.className = 'save-name';
+      name.textContent = slot.name;
+      const load = document.createElement('button');
+      load.className = 'btn'; load.type = 'button'; load.textContent = 'Load';
+      load.addEventListener('click', () => {
+        const state = saveStore.load(slot.name);
+        if (state) { applySolarState(state); toast('Loaded “' + slot.name + '”'); }
+      });
+      const del = document.createElement('button');
+      del.className = 'btn danger'; del.type = 'button'; del.textContent = 'Delete';
+      del.addEventListener('click', () => { saveStore.remove(slot.name); renderSaveList(); });
+      row.append(name, load, del);
+      host.appendChild(row);
+    }
+  };
+  ui('saveSlot')?.addEventListener('click', () => {
+    const name = (ui('saveName').value || '').trim() || 'Scene ' + new Date().toLocaleString();
+    if (saveStore.save(name, snapshotSolarState())) {
+      ui('saveName').value = '';
+      renderSaveList();
+      toast('Saved “' + name.slice(0, 40) + '”');
+    } else {
+      toast('Could not save (storage unavailable)');
+    }
+  });
+  ui('solarShot')?.addEventListener('click', () => {
+    composer.render();
+    const url = renderer.domElement.toDataURL('image/png');
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'cosmicx-' + GALAXIES[currentGalaxy].name.replace(/[^\w-]+/g, '_') + '.png';
+    a.click();
+    toast('Image saved');
+  });
+
+  // Presets — prebuilt scenes loaded through applySolarState
+  const presetSel = ui('presetSelect');
+  if (presetSel) {
+    for (const p of SOLAR_PRESETS) {
+      const o = document.createElement('option');
+      o.value = p.id; o.textContent = p.name;
+      presetSel.appendChild(o);
+    }
+    const syncPresetDesc = () => {
+      const p = SOLAR_PRESETS.find(x => x.id === presetSel.value);
+      if (ui('presetDesc')) ui('presetDesc').textContent = p ? p.desc : '';
+    };
+    presetSel.addEventListener('change', syncPresetDesc);
+    syncPresetDesc();
+    ui('presetLoad')?.addEventListener('click', () => {
+      const p = SOLAR_PRESETS.find(x => x.id === presetSel.value);
+      if (p) { applySolarState(sanitizeState(p.state)); toast('Loaded “' + p.name + '”'); }
+    });
+  }
+
+  // Share — copy a link that reopens this scene, or paste one in
+  ui('shareCopy')?.addEventListener('click', async () => {
+    const link = buildShareLink();
+    try {
+      await navigator.clipboard.writeText(link);
+      toast('Share link copied');
+    } catch {
+      // clipboard blocked (no https / permission) — show it for manual copy
+      if (ui('shareImport')) ui('shareImport').value = link;
+      toast('Copy the link from the box below');
+    }
+  });
+  ui('shareLoad')?.addEventListener('click', () => {
+    const raw = (ui('shareImport').value || '').trim();
+    if (!raw) return;
+    // accept a full link or a bare ?share= value; decodeShare handles the URI decode
+    const param = raw.includes('share=') ? raw.split('share=')[1].split(/[#&]/)[0] : raw;
+    try {
+      applySolarState(decodeShare(param));
+      toast('Loaded shared scene');
+    } catch {
+      toast('That link could not be read');
+    }
+  });
+
+  renderSaveList();
 
   ui('collapseBtn').addEventListener('click', () => {
     disableCursorLaserMode();
@@ -5365,6 +5532,7 @@ setupSettings();
 setupFullscreenNotice();
 setupTitleScreen();
 labelRenderer.domElement.style.display = CONFIG.showLabels ? '' : 'none';
+maybeApplyShareLink();
 animate();
 
 // Console/debug handle
