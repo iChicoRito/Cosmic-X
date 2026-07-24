@@ -70,6 +70,12 @@
     max-height: calc(100vh - 120px - var(--bottom-bar-offset)); overflow-y: auto; scrollbar-width: thin;
   }
   #ui.collapsed #uiBody, #ui.collapsed .tabs { display: none; }
+  /* collapsed panel matches the HIDE UI pill's height (padding: 7px 12px) */
+  #ui.collapsed header { padding: 7px 12px; }
+  #ui.collapsed .icon-btn { width: auto; height: auto; }
+  /* chevron rotates smoothly on collapse/expand (parity with the Creator panel) */
+  #collapseBtn { transition: transform .2s ease, background .15s, color .15s; }
+  #ui.collapsed #collapseBtn { transform: rotate(-90deg); }
 
   .tabs { display: flex; gap: 4px; padding: 0 12px 10px; }
   .tab {

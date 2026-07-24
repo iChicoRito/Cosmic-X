@@ -313,6 +313,7 @@
     background: var(--glass-soft); border: 1px solid var(--glass-border);
     color: var(--fg); font: 600 11px var(--font); cursor: pointer;
   }
+  .bb-controls button { display: inline-flex; align-items: center; justify-content: center; }
   .bb-controls button:hover { background: var(--glass-hover); }
   .bb-controls button[aria-pressed="true"] { background: rgba(138, 184, 255, 0.25); border-color: rgba(138, 184, 255, 0.5); }
   .bb-controls button:focus-visible { outline: 2px solid var(--ring); outline-offset: 1px; }

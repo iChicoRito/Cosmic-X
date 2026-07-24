@@ -13,7 +13,7 @@ export function solarTemplate() {
 <dialog id="settingsDialog" aria-labelledby="settingsTitle">
   <header class="settings-header">
     <h2 id="settingsTitle">Settings</h2>
-    <button id="settingsClose" class="icon-btn" type="button" aria-label="Close settings">&times;</button>
+    <button id="settingsClose" class="icon-btn" type="button" aria-label="Close settings">${ICONS.close}</button>
   </header>
   <div class="settings-tabs" role="tablist" aria-label="Settings categories">
     <button id="settingsTabDisplay" class="settings-tab" type="button" role="tab"
@@ -157,15 +157,15 @@ export function solarTemplate() {
     <div class="mode-grid">
       <button id="startBtn" class="mode-card">
         <span class="mode-txt"><b>As the Gods Will</b><span>An immersive journey through the planets and beyond.</span></span>
-        <span class="mode-play" aria-hidden="true"><svg viewBox="0 0 10 12" width="11" height="13"><path d="M0 0 10 6 0 12Z" fill="currentColor"/></svg>PLAY</span>
+        <span class="mode-play" aria-hidden="true">${ICONS.play}PLAY</span>
       </button>
       <button id="creatorBtn" class="mode-card">
         <span class="mode-txt"><b>Become the Creator</b><span>Design, evolve, and rule your own galaxy.</span></span>
-        <span class="mode-play" aria-hidden="true"><svg viewBox="0 0 10 12" width="11" height="13"><path d="M0 0 10 6 0 12Z" fill="currentColor"/></svg>PLAY</span>
+        <span class="mode-play" aria-hidden="true">${ICONS.play}PLAY</span>
       </button>
       <button id="bigbangBtn" class="mode-card">
         <span class="mode-txt"><b>Before the Stars</b><span>From singularity to Infinity</span></span>
-        <span class="mode-play" aria-hidden="true"><svg viewBox="0 0 10 12" width="11" height="13"><path d="M0 0 10 6 0 12Z" fill="currentColor"/></svg>PLAY</span>
+        <span class="mode-play" aria-hidden="true">${ICONS.play}PLAY</span>
       </button>
     </div>
   </div>
@@ -184,7 +184,7 @@ export function solarTemplate() {
   <header>
     <h2>Controls</h2>
     <button id="collapseBtn" class="icon-btn" title="Collapse panel"
-      aria-label="Collapse panel" aria-expanded="true">&#8722;</button>
+      aria-label="Collapse panel" aria-expanded="true">${ICONS.chevronDown}</button>
   </header>
   <div class="tabs">
     <button class="tab active" data-tab="world">World</button>
@@ -456,7 +456,7 @@ export function solarTemplate() {
       <h3 id="ipName"></h3>
       <span class="chip" id="ipType"></span>
     </div>
-    <button id="ipClose" class="icon-btn" title="Close panel" aria-label="Close panel">&#215;</button>
+    <button id="ipClose" class="icon-btn" title="Close panel" aria-label="Close panel">${ICONS.close}</button>
   </header>
   <div id="ipBody"></div>
 </aside>

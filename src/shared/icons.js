@@ -1,44 +1,40 @@
-// Renders Hugeicons icon data (framework-agnostic tuples) to inline SVG strings
-// so the vanilla string-template markup of every page can drop icons in directly.
-import {
-  PlayIcon,
-  PauseIcon,
-  Backward01Icon,
-  PreviousIcon,
-  NextIcon,
-  MinusSignIcon,
-  PlusSignIcon,
-  Refresh01Icon,
-  Clock01Icon,
-  ArrowLeft01Icon,
-  ArrowDown01Icon,
-  ArrowUp01Icon,
-} from '@hugeicons/core-free-icons';
+// Material Symbols (Rounded, filled) solid-path glyphs, inlined as SVG strings.
+// Inlined (not imported from the package) so this stays node-importable — runtime.js
+// imports it and the "syntactically valid" tests import runtime.js under plain node.
+// All share Material's viewBox and fill with currentColor (no stroke).
+const P = {
+  play: 'M320-258v-450q0-14 9-22t21-8q4 0 8 1t8 3l354 226q7 5 10.5 11t3.5 14q0 8-3.5 14T720-458L366-232q-4 2-8 3t-8 1q-12 0-21-8t-9-22Z',
+  pause: 'M615-200q-24.75 0-42.37-17.63Q555-235.25 555-260v-440q0-24.75 17.63-42.38Q590.25-760 615-760h55q24.75 0 42.38 17.62Q730-724.75 730-700v440q0 24.75-17.62 42.37Q694.75-200 670-200h-55Zm-325 0q-24.75 0-42.37-17.63Q230-235.25 230-260v-440q0-24.75 17.63-42.38Q265.25-760 290-760h55q24.75 0 42.38 17.62Q405-724.75 405-700v440q0 24.75-17.62 42.37Q369.75-200 345-200h-55Z',
+  rewind: 'M807-273 544-455q-7-5-10-11.5t-3-13.5q0-7 3-13.5t10-11.5l263-182q4-3 8-4.5t9-1.5q12 0 21 8t9 22v366q0 14-9 22t-21 8q-5 0-9-1.5t-8-4.5Zm-402 0L142-455q-7-5-10-11.5t-3-13.5q0-7 3-13.5t10-11.5l263-182q4-3 8-4.5t9-1.5q12 0 21 8t9 22v366q0 14-9 22t-21 8q-5 0-9-1.5t-8-4.5Z',
+  skipPrev: 'M220-270v-420q0-13 8.5-21.5T250-720q13 0 21.5 8.5T280-690v420q0 13-8.5 21.5T250-240q-13 0-21.5-8.5T220-270Zm473-3L430-455q-7-5-10-11.5t-3-13.5q0-7 3-13.5t10-11.5l263-182q4-3 8-4.5t9-1.5q12 0 21 8t9 22v366q0 14-9 22t-21 8q-5 0-9-1.5t-8-4.5Z',
+  skipNext: 'M680-270v-420q0-13 8.5-21.5T710-720q13 0 21.5 8.5T740-690v420q0 13-8.5 21.5T710-240q-13 0-21.5-8.5T680-270Zm-460-27v-366q0-14 9-22t21-8q5 0 9 1.5t8 4.5l263 182q7 5 10 11.5t3 13.5q0 7-3 13.5T530-455L267-273q-4 3-8 4.5t-9 1.5q-12 0-21-8t-9-22Z',
+  minus: 'M230-450q-12.75 0-21.37-8.68-8.63-8.67-8.63-21.5 0-12.82 8.63-21.32 8.62-8.5 21.37-8.5h500q12.75 0 21.38 8.68 8.62 8.67 8.62 21.5 0 12.82-8.62 21.32-8.63 8.5-21.38 8.5H230Z',
+  plus: 'M450-450H230q-12.75 0-21.37-8.68-8.63-8.67-8.63-21.5 0-12.82 8.63-21.32 8.62-8.5 21.37-8.5h220v-220q0-12.75 8.68-21.38 8.67-8.62 21.5-8.62 12.82 0 21.32 8.62 8.5 8.63 8.5 21.38v220h220q12.75 0 21.38 8.68 8.62 8.67 8.62 21.5 0 12.82-8.62 21.32-8.63 8.5-21.38 8.5H510v220q0 12.75-8.68 21.37-8.67 8.63-21.5 8.63-12.82 0-21.32-8.63-8.5-8.62-8.5-21.37v-220Z',
+  refresh: 'M480-160q-133 0-226.5-93.5T160-480q0-133 93.5-226.5T480-800q85 0 149 34.5T740-671v-99q0-13 8.5-21.5T770-800q13 0 21.5 8.5T800-770v194q0 13-8.5 21.5T770-546H576q-13 0-21.5-8.5T546-576q0-13 8.5-21.5T576-606h138q-38-60-97-97t-137-37q-109 0-184.5 75.5T220-480q0 109 75.5 184.5T480-220q75 0 140-39.5T717-366q5-11 16.5-16.5t22.5-.5q12 5 16 16.5t-1 23.5q-39 84-117.5 133.5T480-160Z',
+  clock: 'M513-492v-171q0-13-8.5-21.5T483-693q-13 0-21.5 8.5T453-663v183q0 6 2 11t6 10l144 149q9 10 22.5 9.5T650-310q9-9 9-22t-9-22L513-492ZM480-80q-82 0-155-31.5t-127.5-86Q143-252 111.5-325T80-480q0-82 31.5-155t86-127.5Q252-817 325-848.5T480-880q82 0 155 31.5t127.5 86Q817-708 848.5-635T880-480q0 82-31.5 155t-86 127.5Q708-143 635-111.5T480-80Z',
+  chevronLeft: 'm406-481 177 177q9 9 8.5 21t-9.5 21q-9 9-21.5 9t-21.5-9L341-460q-5-5-7-10t-2-11q0-6 2-11t7-10l199-199q9-9 21.5-9t21.5 9q9 9 9 21.5t-9 21.5L406-481Z',
+  chevronDown: 'M469-358q-5-2-10-7L261-563q-9-9-8.5-21.5T262-606q9-9 21.5-9t21.5 9l175 176 176-176q9-9 21-8.5t21 9.5q9 9 9 21.5t-9 21.5L501-365q-5 5-10 7t-11 2q-6 0-11-2Z',
+  chevronUp: 'M480-554 304-378q-9 9-21 8.5t-21-9.5q-9-9-9-21.5t9-21.5l197-197q9-9 21-9t21 9l198 198q9 9 9 21t-9 21q-9 9-21.5 9t-21.5-9L480-554Z',
+  close: 'M480-438 270-228q-9 9-21 9t-21-9q-9-9-9-21t9-21l210-210-210-210q-9-9-9-21t9-21q9-9 21-9t21 9l210 210 210-210q9-9 21-9t21 9q9 9 9 21t-9 21L522-480l210 210q9 9 9 21t-9 21q-9 9-21 9t-21-9L480-438Z',
+};
 
-// Hugeicons attrs are React-style camelCase (strokeWidth); SVG markup needs kebab-case.
-const attrsToStr = attrs => Object.entries(attrs)
-  .filter(([k]) => k !== 'key')
-  .map(([k, v]) => `${k.replace(/[A-Z]/g, c => '-' + c.toLowerCase())}="${v}"`)
-  .join(' ');
-
-// icon data is an array of [tag, attrs] tuples on a 24×24 grid
-export const icon = (data, size = 18) =>
-  `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 24 24" `
-  + `fill="none" aria-hidden="true" focusable="false">`
-  + data.map(([tag, attrs]) => `<${tag} ${attrsToStr(attrs)} />`).join('')
-  + `</svg>`;
+export const icon = (d, size = 12) =>
+  `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" `
+  + `viewBox="0 -960 960 960" fill="currentColor" aria-hidden="true" focusable="false">`
+  + `<path d="${d}"/></svg>`;
 
 export const ICONS = {
-  play: icon(PlayIcon),
-  pause: icon(PauseIcon),
-  reverse: icon(Backward01Icon),
-  prev: icon(PreviousIcon),
-  next: icon(NextIcon),
-  minus: icon(MinusSignIcon),
-  plus: icon(PlusSignIcon),
-  reset: icon(Refresh01Icon),
-  now: icon(Clock01Icon),
-  back: icon(ArrowLeft01Icon, 16),
-  chevronDown: icon(ArrowDown01Icon),
-  chevronUp: icon(ArrowUp01Icon),
+  play: icon(P.play),
+  pause: icon(P.pause),
+  reverse: icon(P.rewind),
+  prev: icon(P.skipPrev),
+  next: icon(P.skipNext),
+  minus: icon(P.minus),
+  plus: icon(P.plus),
+  reset: icon(P.refresh),
+  now: icon(P.clock),
+  back: icon(P.chevronLeft),
+  chevronDown: icon(P.chevronDown),
+  chevronUp: icon(P.chevronUp),
+  close: icon(P.close),
 };

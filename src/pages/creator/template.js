@@ -56,7 +56,7 @@ export function creatorTemplate() {
   <section id="crPanel" class="glass">
     <header class="cr-panel-head">
       <h2>Creator Controls</h2>
-      <button id="crPanelCollapse" class="cr-icon-btn" type="button" aria-label="Collapse panel" aria-expanded="true">&#9662;</button>
+      <button id="crPanelCollapse" class="cr-icon-btn" type="button" aria-label="Collapse panel" aria-expanded="true">${ICONS.chevronDown}</button>
     </header>
     <nav id="crToolbar" class="cr-tabs" aria-label="Creator tools">
       <button class="cr-tab" type="button" data-panel="build">Build</button>
@@ -165,7 +165,7 @@ export function creatorTemplate() {
   <aside id="crInspector" class="glass" hidden aria-label="Object inspector">
     <header class="cr-panel-head">
       <h3 id="crInspName"></h3>
-      <button id="crInspClose" class="cr-icon-btn" type="button" aria-label="Close inspector">&times;</button>
+      <button id="crInspClose" class="cr-icon-btn" type="button" aria-label="Close inspector">${ICONS.close}</button>
     </header>
     <p id="crInspKind" class="cr-dim"></p>
     <dl id="crInspFacts" class="cr-stats"></dl>
@@ -185,7 +185,7 @@ export function creatorTemplate() {
       <span class="cr-bar-sub">elapsed cosmic time</span>
     </div>
     <div class="cr-bar-transport" role="group" aria-label="Simulation speed">
-      <button id="crPauseBtn" class="cr-speed" type="button" aria-pressed="false" title="Pause">&#10074;&#10074;</button>
+      <button id="crPauseBtn" class="cr-speed" type="button" aria-pressed="false" title="Pause">${ICONS.pause}</button>
       <span id="crSpeeds"></span>
     </div>
     <div class="cr-bar-glance">

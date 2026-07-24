@@ -53,11 +53,11 @@ export function bigBangTemplate() {
     <span id="bbTimeLabel"></span>
   </div>
   <div class="bb-controls">
-    <button id="bbReverse" type="button" aria-label="Play in reverse" aria-pressed="false">&#9664;</button>
-    <button id="bbPlay" type="button" aria-label="Play or pause" aria-pressed="false">&#9654;</button>
-    <button id="bbSpeedDown" type="button" aria-label="Slower">&minus;</button>
+    <button id="bbReverse" type="button" aria-label="Play in reverse" aria-pressed="false">${ICONS.reverse}</button>
+    <button id="bbPlay" type="button" aria-label="Play or pause" aria-pressed="false">${ICONS.play}</button>
+    <button id="bbSpeedDown" type="button" aria-label="Slower">${ICONS.minus}</button>
     <output id="bbSpeedVal">1&times;</output>
-    <button id="bbSpeedUp" type="button" aria-label="Faster">+</button>
+    <button id="bbSpeedUp" type="button" aria-label="Faster">${ICONS.plus}</button>
   </div>
   <div class="bb-track">
     <input id="bbScrubber" type="range" min="0" max="1000" step="1" value="0" aria-label="Cosmic timeline">

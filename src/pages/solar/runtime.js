@@ -3377,6 +3377,8 @@ function armToastDismiss(item) {
 }
 
 function toast(message, color = '#8ab8ff') {
+  // no toasts outside actual gameplay — the sim keeps running under the title/modes screens
+  if (titleMode) return;
   const host = ui('toasts');
   // repeated message: keep the existing toast alive instead of stacking a twin
   const dup = [...host.children].find(t => t.textContent === message && !t.classList.contains('out'));
@@ -4613,7 +4615,6 @@ function setupUI() {
     disableCursorLaserMode();
     const collapsed = ui('ui').classList.toggle('collapsed');
     const label = collapsed ? 'Expand panel' : 'Collapse panel';
-    ui('collapseBtn').innerHTML = collapsed ? '+' : '&#8722;';
     ui('collapseBtn').setAttribute('aria-expanded', String(!collapsed));
     ui('collapseBtn').setAttribute('aria-label', label);
     ui('collapseBtn').title = label;

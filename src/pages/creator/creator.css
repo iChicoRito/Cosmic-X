@@ -474,6 +474,7 @@ canvas.cr-canvas { position: fixed; inset: 0; display: block; touch-action: none
   font-variant-numeric: tabular-nums;
   transition: background 0.15s, color 0.15s, border-color 0.15s;
 }
+#crPauseBtn { display: inline-flex; align-items: center; justify-content: center; }
 .cr-speed:hover { color: var(--fg); background: var(--glass-hover); }
 .cr-speed[aria-pressed="true"] { color: #dcebff; border-color: rgba(138, 184, 255, 0.5); background: rgba(138, 184, 255, 0.25); }
 .cr-bar-glance { display: flex; justify-content: flex-end; gap: 16px; }

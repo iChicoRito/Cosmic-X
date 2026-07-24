@@ -6,6 +6,7 @@ import { createEpochModel, epochPresentationAt, glideDuration, openingVisualAt }
 import { createCameraChains } from './camera.js';
 import { createSystemRegistry } from './systems.js';
 import { bindBigBangNavigation } from './ui.js';
+import { ICONS } from '../../shared/icons.js';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
@@ -1611,7 +1612,7 @@ function updateGlide(dt) {
 
 function updateTransportUI() {
   const play = document.getElementById('bbPlay');
-  play.innerHTML = T.playing ? '&#10074;&#10074;' : '&#9654;';
+  play.innerHTML = T.playing ? ICONS.pause : ICONS.play;
   play.setAttribute('aria-pressed', String(T.playing));
   document.getElementById('bbReverse').setAttribute('aria-pressed', String(T.playing && T.dir < 0));
   document.getElementById('bbSpeedVal').textContent = BB_SPEEDS[T.speedIdx] + '×';
