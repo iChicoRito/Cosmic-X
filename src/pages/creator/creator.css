@@ -23,7 +23,7 @@ body {
   font-family: var(--font);
 }
 
-canvas.cr-canvas { position: fixed; inset: 0; display: block; }
+canvas.cr-canvas { position: fixed; inset: 0; display: block; touch-action: none; }
 
 /* CSS2DRenderer overlay — must never eat pointer events meant for the canvas */
 #crLabels { position: fixed; top: 0; left: 0; pointer-events: none; z-index: 1; }

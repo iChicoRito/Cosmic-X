@@ -15,7 +15,7 @@
   }
 
   [hidden] { display: none !important; }
-  canvas { display: block; }
+  canvas { display: block; touch-action: none; }
 
   .glass {
     background: var(--glass-bg);

@@ -16,6 +16,7 @@ import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
 import { FXAAShader } from 'three/addons/shaders/FXAAShader.js';
 import { disposeThreeRuntime } from '../../shared/dispose-three.js';
 import { createResourceScope } from '../../shared/resource-scope.js';
+import { createTextureUpgrader } from '../../shared/texture-loader.js';
 
 export function createBigBangRuntime({ root, navigate }) {
 const scope = createResourceScope(window);
@@ -278,20 +279,11 @@ function createShockTexture() {
 // Real maps swap in over the procedural base when the CDN answers; offline
 // just keeps the procedural fallback (same behaviour as the sandbox).
 const TEX_BASE = 'https://raw.githubusercontent.com/jeromeetienne/threex.planets/master/images/';
-const texLoader = new THREE.TextureLoader();
-texLoader.setCrossOrigin('anonymous');
-
-function upgradeTexture(material, file, slot = 'map', asColor = true) {
-  if (!file) return;
-  texLoader.load(TEX_BASE + file, (tex) => {
-    if (destroyed) { tex.dispose(); return; }
-    if (asColor) tex.colorSpace = THREE.SRGBColorSpace;
-    tex.anisotropy = renderer.capabilities.getMaxAnisotropy();
-    material[slot] = tex;
-    if (slot === 'bumpMap') material.bumpScale = 0.05;
-    material.needsUpdate = true;
-  }, undefined, () => { /* offline / 404 → keep procedural fallback */ });
-}
+const upgradeTexture = createTextureUpgrader(THREE, {
+  baseUrl: TEX_BASE,
+  getRenderer: () => renderer,
+  isDestroyed: () => destroyed,
+});
 
 function makeAtmosphere(radius, color, intensity) {
   const mat = new THREE.ShaderMaterial({
