@@ -2755,10 +2755,27 @@ const cameraState = {
 };
 
 // Gyroscope look, mobile only. Drives cameraState.yaw/pitch in free flight and nothing else.
-const gyro = { active: false, tracker: null, prevMode: 'orbit', abort: null };
+const gyro = { active: false, tracker: null, prevMode: 'orbit', abort: null, source: '' };
 
 function readGyro(event) {
-  gyro.tracker?.feed(event);
+  if (!gyro.tracker) return;
+  gyro.source = event.type;
+  gyro.tracker.feed(event);
+  showGyroStatus();
+}
+
+// On-device readout: a phone has no console, and "nothing happens" has several
+// possible causes that only the live numbers can tell apart.
+function showGyroStatus() {
+  const hint = ui('camHint');
+  if (!hint || !gyro.active) return;
+  if (!gyro.tracker?.samples) {
+    hint.textContent = 'Gyroscope: waiting for the sensor…';
+    return;
+  }
+  const deg = (r) => Math.round(r * 180 / Math.PI);
+  hint.textContent = `Gyroscope: ${gyro.source} · ${gyro.tracker.samples} readings · `
+    + `yaw ${deg(gyro.tracker.target.yaw)}° pitch ${deg(gyro.tracker.target.pitch)}°`;
 }
 
 async function enableGyro() {
@@ -2779,16 +2796,19 @@ async function enableGyro() {
   gyro.abort = new AbortController();
   gyro.active = true;
   window.addEventListener('deviceorientation', readGyro, { signal: gyro.abort.signal });
+  // Android phones without a true gyroscope only ever fire the absolute variant.
+  window.addEventListener('deviceorientationabsolute', readGyro, { signal: gyro.abort.signal });
   gyro.prevMode = cameraState.mode;
   if (cameraState.mode !== 'free') setCameraMode('free');
   // Start from wherever the camera is already looking; the sensor only adds deltas.
   gyro.tracker.nudge(cameraState.yaw, cameraState.pitch);
-  // Some devices expose the API but never fire. Give up rather than look broken.
+  showGyroStatus();
+  // Some devices expose the API but never fire. Say why rather than look broken.
   setTimeout(() => {
-    if (!gyro.active) return;
-    if (gyro.tracker.samples > 0) return;
-    disableGyro();
-    toast('Gyroscope unavailable — continuing with touch controls', '#ff9a6a');
+    if (!gyro.active || gyro.tracker.samples > 0) return;
+    const hint = ui('camHint');
+    if (hint) hint.textContent = 'Gyroscope: no sensor readings. Check Chrome › site settings › Motion sensors.';
+    toast('No sensor readings — check motion permissions', '#ff9a6a');
   }, 1500);
 }
 
@@ -2800,6 +2820,8 @@ function disableGyro(restoreMode = true) {
   gyro.tracker = null;
   const box = ui('gyro-toggle');
   if (box) box.checked = false;
+  const hint = ui('camHint');
+  if (hint && !destroyed) hint.textContent = CAMERA_HINTS[cameraState.mode];
   if (restoreMode && !destroyed && cameraState.mode === 'free' && gyro.prevMode !== 'free') {
     setCameraMode(gyro.prevMode);
   }
