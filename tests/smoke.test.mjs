@@ -13,6 +13,7 @@ test('pure + shared modules import and expose their entry points', async () => {
     import('../src/pages/solar/zodiac.js'),
     import('../src/pages/solar/timeline.js'),
     import('../src/pages/solar/config.js'),
+    import('../src/pages/solar/gyro.js'),
     import('../src/pages/creator/galaxy-model.js'),
     import('../src/pages/creator/systems.js'),
     import('../src/pages/creator/evolution.js'),

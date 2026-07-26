@@ -7,6 +7,7 @@ import { closestApproach, wormholeTransit } from './dynamics.js';
 import { pickZodiac } from './zodiac.js';
 import { createCameraMetadata } from './camera.js';
 import { createSolarSettings } from './settings.js';
+import { createGyroTracker, gyroSupported, wrapAngle } from './gyro.js';
 import { createStore as createSolarStore, sanitizeState, encodeShare, decodeShare } from './persistence.js';
 import { SOLAR_PRESETS } from './presets.js';
 import { ICONS } from './icons.js';
@@ -2753,6 +2754,57 @@ const cameraState = {
   followLast: new THREE.Vector3(),
 };
 
+// Gyroscope look, mobile only. Drives cameraState.yaw/pitch in free flight and nothing else.
+const gyro = { active: false, tracker: null, prevMode: 'orbit', abort: null };
+
+function readGyro(event) {
+  gyro.tracker?.feed(event);
+}
+
+async function enableGyro() {
+  if (gyro.active) return;
+  const request = window.DeviceOrientationEvent?.requestPermission;
+  if (typeof request === 'function') {
+    // iOS 13+: must be asked from the toggle's own gesture, and can be refused.
+    let state = 'denied';
+    try { state = await request.call(window.DeviceOrientationEvent); } catch { state = 'denied'; }
+    if (state !== 'granted' || destroyed) {
+      const box = ui('gyro-toggle');
+      if (box) box.checked = false;
+      if (!destroyed) toast('Motion access denied — continuing with touch controls', '#ff9a6a');
+      return;
+    }
+  }
+  gyro.tracker = createGyroTracker();
+  gyro.abort = new AbortController();
+  gyro.active = true;
+  window.addEventListener('deviceorientation', readGyro, { signal: gyro.abort.signal });
+  gyro.prevMode = cameraState.mode;
+  if (cameraState.mode !== 'free') setCameraMode('free');
+  // Start from wherever the camera is already looking; the sensor only adds deltas.
+  gyro.tracker.nudge(cameraState.yaw, cameraState.pitch);
+  // Some devices expose the API but never fire. Give up rather than look broken.
+  setTimeout(() => {
+    if (!gyro.active) return;
+    if (gyro.tracker.samples > 0) return;
+    disableGyro();
+    toast('Gyroscope unavailable — continuing with touch controls', '#ff9a6a');
+  }, 1500);
+}
+
+function disableGyro(restoreMode = true) {
+  if (!gyro.active) return;
+  gyro.active = false;
+  gyro.abort?.abort();
+  gyro.abort = null;
+  gyro.tracker = null;
+  const box = ui('gyro-toggle');
+  if (box) box.checked = false;
+  if (restoreMode && !destroyed && cameraState.mode === 'free' && gyro.prevMode !== 'free') {
+    setCameraMode(gyro.prevMode);
+  }
+}
+
 function isCameraTargetLive(record) {
   if (!record || record.destroyed || record.alive === false || record.visible === false) return false;
   if (record.isSun) return record === sunRec;
@@ -2834,6 +2886,7 @@ function refreshCameraTargets() {
 function setCameraMode(mode) {
   if (!CAMERA_MODES.has(mode)) return false;
   if (camTargetsDirty) refreshCameraTargets();
+  if (gyro.active && mode !== 'free') disableGyro(false);
 
   const selected = cameraState.targets[Number(ui('camTarget')?.value)];
   if (isCameraTargetLive(selected)) cameraState.target = selected;
@@ -2913,6 +2966,13 @@ function updateCameraMode(dt) {
     if (cameraState.keys.has('KeyD')) camera.position.addScaledVector(right, speed);
     if (cameraState.keys.has('Space')) camera.position.y += speed;
     if (cameraState.keys.has('ControlLeft') || cameraState.keys.has('ControlRight')) camera.position.y -= speed;
+    if (gyro.active && gyro.tracker.samples > 0) {
+      // Frame-rate independent low-pass: the sensor is jittery, the view must not be.
+      const k = 1 - Math.exp(-dt * 12);
+      cameraState.yaw += wrapAngle(gyro.tracker.target.yaw - cameraState.yaw) * k;
+      const wanted = THREE.MathUtils.clamp(gyro.tracker.target.pitch, -1.45, 1.45);
+      cameraState.pitch += (wanted - cameraState.pitch) * k;
+    }
     camera.rotation.order = 'YXZ';
     camera.rotation.set(cameraState.pitch, cameraState.yaw, 0);
   } else if (cameraState.mode === 'follow') {
@@ -3058,12 +3118,12 @@ function setupPicking() {
     cameraState.lastX = e.clientX;
     cameraState.lastY = e.clientY;
     if (cameraState.mode === 'free') {
-      cameraState.yaw -= dx * 0.003 * CONFIG.mouseSensitivity;
-      cameraState.pitch = THREE.MathUtils.clamp(
-        cameraState.pitch - dy * 0.003 * CONFIG.mouseSensitivity,
-        -1.45,
-        1.45,
-      );
+      const dYaw = -dx * 0.003 * CONFIG.mouseSensitivity;
+      const dPitch = -dy * 0.003 * CONFIG.mouseSensitivity;
+      // With the gyro live the drag re-aims its rest pose, so the two never fight.
+      if (gyro.active) gyro.tracker.nudge(dYaw, dPitch);
+      cameraState.yaw += dYaw;
+      cameraState.pitch = THREE.MathUtils.clamp(cameraState.pitch + dPitch, -1.45, 1.45);
     }
   });
 }
@@ -4506,6 +4566,15 @@ function setupUI() {
     saveSettings();
     syncSettingsControls();
   });
+  if (!gyroSupported(window)) {
+    ui('gyroRow').hidden = true;
+  } else {
+    ui('gyroRow').hidden = false;
+    ui('gyro-toggle').addEventListener('change', (e) => {
+      if (e.target.checked) enableGyro();
+      else disableGyro();
+    });
+  }
   ui('resetSim').addEventListener('click', () => {
     // restore pristine defs (eccentricity nudges etc. mutate them)
     GALAXIES[currentGalaxy].planets.forEach(def => { if (def._e0 !== undefined) def.e = def._e0; });
@@ -5559,6 +5628,7 @@ window.solar = {
   get starLayers() { return starLayers; },
   step: (dt) => update(dt), // headless simulation tick
   render: () => composer.render(), // headless frame render (verification)
+  gyro, enableGyro, disableGyro,
   get lensingPass() { return lensingPass; },
   get bloomPass() { return bloomPass; },
 };
@@ -5606,6 +5676,7 @@ function resume() {
 function destroy() {
   if (destroyed) return;
   disableCursorLaserMode();
+  disableGyro(false);
   stopSolarOnboarding();
   paused = true;
   cancelAnimationFrame(frameId);

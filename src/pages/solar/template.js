@@ -221,6 +221,9 @@ export function solarTemplate() {
         <input id="teleZoom" type="range" min="0.5" max="15" step="0.1" aria-label="Telescope zoom">
       </div>
       <div class="note" id="camHint">Left-drag orbits, right-drag pans, scroll zooms. Click any body to focus it.</div>
+      <div class="row" id="gyroRow" hidden><span>Gyroscope look</span>
+        <label class="switch"><input id="gyro-toggle" type="checkbox" aria-label="Gyroscope camera look"><span class="track"></span><span class="thumb"></span></label>
+      </div>
       <div class="sep"></div>
       <button id="resetBtn" class="btn">Reset camera</button>
     </div>

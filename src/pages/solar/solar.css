@@ -93,6 +93,7 @@
   .tool-group { display: flex; flex-direction: column; gap: 13px; }
 
   .row { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+  .row[hidden] { display: none; }
   .value { color: var(--muted); font-variant-numeric: tabular-nums; font-size: 12px; }
   .sep { height: 1px; background: rgba(255, 255, 255, 0.08); margin: 0 -16px; flex: none; }
   .section-label {
