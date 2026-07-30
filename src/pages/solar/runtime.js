@@ -398,7 +398,6 @@ let selectedRecord = null;
 
 const _v1 = new THREE.Vector3(), _v2 = new THREE.Vector3(), _v3 = new THREE.Vector3();
 const _q1 = new THREE.Quaternion();
-const _m1 = new THREE.Matrix4();
 const pointerPar = new THREE.Vector2();
 
 const STAR_LAYER_DEFS = [
@@ -893,6 +892,65 @@ const DISTANT_GALAXY_POSES = [
   { dir: [0.68, -0.25, -0.69], tint: 0xb88cff },   // Wormhole Galaxy
 ];
 
+// Particle body for a far galaxy: soft gas motes + pinprick stars scattered
+// through a real volume (spiral disk, or ellipsoid for the ellipticals). Flat
+// imposter cards read as cards from anywhere off-axis; points carry genuine
+// depth, so the cloud parallaxes and thickens as you fly toward it.
+function createGalaxyCloud(g, index) {
+  const cloud = new THREE.Group();
+  const disk = !g.type.startsWith('Elliptical');
+  const R = disk ? 170 : 125;
+  const arms = 2 + (index % 3);
+  const palette = g.nebulas.map(([hex]) => new THREE.Color(hex));
+  const core = new THREE.Color('#fff2dd');
+  const c = new THREE.Color();
+
+  // shared shape sampler: t is the radial rank, so both layers occupy the same
+  // volume and the stars sit inside the gas rather than beside it
+  const sample = (out, t) => {
+    const r = R * Math.pow(t, disk ? 0.7 : 0.55);
+    if (disk) {
+      const theta = Math.log(Math.max(r, 14) / 14) / 0.42
+        + Math.floor(Math.random() * arms) * (Math.PI * 2 / arms)
+        + (Math.random() - 0.5) * (0.55 + t * 1.1);
+      out.set(Math.cos(theta) * r, (Math.random() + Math.random() - 1) * (9 + t * 15), Math.sin(theta) * r);
+    } else {
+      const u = Math.random() * 2 - 1, phi = Math.random() * Math.PI * 2, s = Math.sqrt(1 - u * u);
+      out.set(s * Math.cos(phi) * r, u * r * 0.74, s * Math.sin(phi) * r);
+    }
+  };
+
+  const layers = [
+    // [count, size, attenuate, opacity, texture, tint mix]
+    [520, 34, true, 0.11, createGlowTexture('rgba(255,255,255,0.8)', 'rgba(255,255,255,0.22)', 'rgba(255,255,255,0.04)')],
+    [1400, 1.5, false, 0.85, createPointSpriteTexture()],
+  ];
+  layers.forEach(([count, size, attenuate, opacity, map], layer) => {
+    const n = Math.max(60, Math.floor(count * density()));
+    const pos = new Float32Array(n * 3);
+    const col = new Float32Array(n * 3);
+    for (let i = 0; i < n; i++) {
+      const t = Math.random();
+      sample(_v1, t);
+      _v1.toArray(pos, i * 3);
+      // gas takes the galaxy's nebula palette, stars fade core-white → rim tint
+      if (layer === 0) c.copy(palette[i % palette.length]).lerp(core, Math.max(0, 0.75 - t)).multiplyScalar(0.6 + Math.random() * 0.7);
+      else c.lerpColors(core, palette[i % palette.length], Math.min(1, t * 1.2)).multiplyScalar(0.5 + Math.random() * 0.8);
+      c.toArray(col, i * 3);
+    }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+    geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
+    cloud.add(new THREE.Points(geo, new THREE.PointsMaterial({
+      map, size, sizeAttenuation: attenuate, vertexColors: true,
+      transparent: true, opacity, blending: THREE.AdditiveBlending, depthWrite: false,
+    })));
+  });
+  // fixed, world-locked tilt per galaxy so the disks are not all edge-on together
+  cloud.rotation.set(0.55 + index * 0.47, index * 1.37, 0.28 * index);
+  return cloud;
+}
+
 function buildDistantGalaxies() {
   distantGalaxies = [];
   GALAXIES.forEach((g, i) => {
@@ -902,30 +960,14 @@ function buildDistantGalaxies() {
     group.position.fromArray(pose.dir).normalize().multiplyScalar(1500);
     const glow = new THREE.Sprite(new THREE.SpriteMaterial({
       map: createGlowTexture('rgba(255,244,224,1)', 'rgba(255,220,170,0.45)', 'rgba(160,170,255,0.1)'),
-      color: pose.tint, transparent: true, opacity: 0.85,
+      color: pose.tint, transparent: true, opacity: 0.7,
       blending: THREE.AdditiveBlending, depthWrite: false,
     }));
-    glow.scale.setScalar(g.type.startsWith('Elliptical') ? 150 : 120);
+    // nucleus only — the particle cloud supplies the body, so a full-width glow
+    // would just wash the structure back out into a smooth blob
+    glow.scale.setScalar(g.type.startsWith('Elliptical') ? 90 : 75);
     group.add(glow);
-    // World-fixed haze, not a Sprite: a billboard counter-rotates against the
-    // sky under camera roll/gyro look. Three quads instead of one — a lone
-    // plane collapses to a sliver at grazing angles, and the three normals are
-    // non-coplanar, so no view direction sees all of them edge-on.
-    const hazeGeo = new THREE.PlaneGeometry(1, 1);
-    const hazeMat = new THREE.MeshBasicMaterial({
-      map: createNebulaTexture(200 + i * 17), color: pose.tint,
-      transparent: true, opacity: 0.2, blending: THREE.AdditiveBlending, // 3 layers ≈ one 0.5 sheet
-      depthWrite: false, side: THREE.DoubleSide,
-    });
-    const hazeW = g.type.startsWith('Elliptical') ? 230 : 320;
-    _q1.setFromRotationMatrix(_m1.lookAt(group.position, _v1.set(0, 0, 0), _v2.set(0, 1, 0)));
-    for (const [axis, shrink] of [['z', 1], ['y', 0.85], ['x', 0.7]]) {
-      const haze = new THREE.Mesh(hazeGeo, hazeMat);
-      haze.quaternion.copy(_q1);
-      if (axis !== 'z') haze.rotateOnAxis(_v3.set(+(axis === 'x'), +(axis === 'y'), 0), Math.PI / 3);
-      haze.scale.set(hazeW * shrink, 200 * shrink, 1);
-      group.add(haze);
-    }
+    group.add(createGalaxyCloud(g, i));
     const record = {
       name: g.name, isGalaxy: true, galaxyIndex: i,
       mesh: glow, anchor: group, geoR: 70, visible: true, alive: true,
