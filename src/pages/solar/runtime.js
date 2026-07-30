@@ -398,6 +398,7 @@ let selectedRecord = null;
 
 const _v1 = new THREE.Vector3(), _v2 = new THREE.Vector3(), _v3 = new THREE.Vector3();
 const _q1 = new THREE.Quaternion();
+const _m1 = new THREE.Matrix4();
 const pointerPar = new THREE.Vector2();
 
 const STAR_LAYER_DEFS = [
@@ -906,11 +907,17 @@ function buildDistantGalaxies() {
     }));
     glow.scale.setScalar(g.type.startsWith('Elliptical') ? 150 : 120);
     group.add(glow);
-    const haze = new THREE.Sprite(new THREE.SpriteMaterial({
+    // World-fixed quad, not a Sprite: a billboard counter-rotates against the
+    // sky under camera roll/gyro look. Oriented once, like the zodiac basis.
+    const haze = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({
       map: createNebulaTexture(200 + i * 17), color: pose.tint,
-      transparent: true, opacity: 0.5, blending: THREE.AdditiveBlending, depthWrite: false,
+      transparent: true, opacity: 0.5, blending: THREE.AdditiveBlending,
+      depthWrite: false, side: THREE.DoubleSide,
     }));
     haze.scale.set(g.type.startsWith('Elliptical') ? 230 : 320, 200, 1);
+    haze.quaternion.setFromRotationMatrix(
+      _m1.lookAt(group.position, _v1.set(0, 0, 0), _v2.set(0, 1, 0)),
+    );
     group.add(haze);
     const record = {
       name: g.name, isGalaxy: true, galaxyIndex: i,
@@ -5648,6 +5655,7 @@ window.solar = {
   get blackHoles() { return blackHoles; },
   get sunRec() { return sunRec; },
   get starLayers() { return starLayers; },
+  get distantGalaxies() { return distantGalaxies; },
   step: (dt) => update(dt), // headless simulation tick
   render: () => composer.render(), // headless frame render (verification)
   gyro, enableGyro, disableGyro,

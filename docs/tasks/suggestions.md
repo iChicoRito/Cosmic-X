@@ -1,11 +1,34 @@
-✅ Add a new Click-and-Hold Laser Beam feature to the Laser tab. This allows users to click and hold the laser beam for as long as they want. This should be added as a new feature and must not replace the existing laser functionality.
+# Feature Suggestions
 
-✅ Add a Galaxy Creation feature that allows users to create and customize their own universe. Users can build galaxies, add planets, stars, moons, and other celestial objects, with full control over their placement and properties.
+Player/stakeholder feature requests. Each entry names the task doc that delivered it,
+so this file stays a request log — the task docs hold the actual specs.
 
-🟨 Refine the Big Bang Theory by improving its visuals, flow, animations, and overall player experience while keeping the core gameplay and mechanics intact.
+Legend: ✅ shipped · 🟨 in progress · ⬜ open
 
-✅ Add an interactive tour guide for new players at the start of their first session. The guide should introduce the game controls, explain the purpose of each controller/button, and walk players through the core gameplay mechanics so they understand how to navigate and interact with the game before they begin.
+## Gameplay features
 
-✅ Introduce the Wormhole Galaxy, a unique fictional galaxy featuring a massive wormhole with customizable physics, dynamic gravitational effects, teleportation mechanics, and immersive visual effects, allowing players to explore and experiment with a new type of cosmic environment without affecting existing galaxy simulations.
+- ✅ **Click-and-hold laser** — hold the beam for as long as you want, added alongside
+  (not replacing) the existing tap laser. → [20 - Hold Laser.md](20%20-%20Hold%20Laser.md)
+- ✅ **Galaxy Creation** — build and customize your own universe: galaxies, stars, planets
+  and moons, with control over placement and properties.
+  → [13 - Creator Mode.md](13%20-%20Creator%20Mode.md)
 
-🟨 --------
+## Simulation & visuals
+
+- ✅ **Big Bang refinement** — better visuals, flow, animation and pacing, with the core
+  mechanics untouched. → [14 - Big Bang Timeline Polish.md](14%20-%20Big%20Bang%20Timeline%20Polish.md),
+  [24 - Big Bang Polish.md](24%20-%20Big%20Bang%20Polish.md)
+- ✅ **Wormhole Galaxy** — a fictional galaxy built around a massive wormhole: custom
+  physics, gravitational effects, teleportation and dedicated FX, with the existing
+  galaxies left alone. → [22 - Wormhole Galaxy.md](22%20-%20Wormhole%20Galaxy.md)
+
+## Onboarding & UX
+
+- ✅ **First-session tour guide** — introduces the controls, explains each controller, and
+  walks new players through the core mechanics before they start.
+  → [19 - Onboarding Tour.md](19%20-%20Onboarding%20Tour.md)
+
+## Open / unclaimed
+
+_Nothing open. Add new suggestions here as `⬜ **Title** — one-line description.`, and move
+them up into a themed section once a task doc picks them up._
