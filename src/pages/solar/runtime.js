@@ -907,18 +907,25 @@ function buildDistantGalaxies() {
     }));
     glow.scale.setScalar(g.type.startsWith('Elliptical') ? 150 : 120);
     group.add(glow);
-    // World-fixed quad, not a Sprite: a billboard counter-rotates against the
-    // sky under camera roll/gyro look. Oriented once, like the zodiac basis.
-    const haze = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({
+    // World-fixed haze, not a Sprite: a billboard counter-rotates against the
+    // sky under camera roll/gyro look. Three quads instead of one — a lone
+    // plane collapses to a sliver at grazing angles, and the three normals are
+    // non-coplanar, so no view direction sees all of them edge-on.
+    const hazeGeo = new THREE.PlaneGeometry(1, 1);
+    const hazeMat = new THREE.MeshBasicMaterial({
       map: createNebulaTexture(200 + i * 17), color: pose.tint,
-      transparent: true, opacity: 0.5, blending: THREE.AdditiveBlending,
+      transparent: true, opacity: 0.2, blending: THREE.AdditiveBlending, // 3 layers ≈ one 0.5 sheet
       depthWrite: false, side: THREE.DoubleSide,
-    }));
-    haze.scale.set(g.type.startsWith('Elliptical') ? 230 : 320, 200, 1);
-    haze.quaternion.setFromRotationMatrix(
-      _m1.lookAt(group.position, _v1.set(0, 0, 0), _v2.set(0, 1, 0)),
-    );
-    group.add(haze);
+    });
+    const hazeW = g.type.startsWith('Elliptical') ? 230 : 320;
+    _q1.setFromRotationMatrix(_m1.lookAt(group.position, _v1.set(0, 0, 0), _v2.set(0, 1, 0)));
+    for (const [axis, shrink] of [['z', 1], ['y', 0.85], ['x', 0.7]]) {
+      const haze = new THREE.Mesh(hazeGeo, hazeMat);
+      haze.quaternion.copy(_q1);
+      if (axis !== 'z') haze.rotateOnAxis(_v3.set(+(axis === 'x'), +(axis === 'y'), 0), Math.PI / 3);
+      haze.scale.set(hazeW * shrink, 200 * shrink, 1);
+      group.add(haze);
+    }
     const record = {
       name: g.name, isGalaxy: true, galaxyIndex: i,
       mesh: glow, anchor: group, geoR: 70, visible: true, alive: true,
